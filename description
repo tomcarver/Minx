@@ -1,0 +1,103 @@
+Stuff not in the readme:
+
+TODO:
+
+while/for/lists or {head, tail}
+
+case insensitive
+Overloading is fudged by the integrator, but method names within a single namespace must be unique. 
+Operator sugar: "1+2"  would essentially be   "plus {lhs: 1, rhs: 2}"
+compile time metaprogramming...
+generics = types that haven;t been supplied, even after usage
+mutable values can only be bound to a scope if it reads it before writing to it.
+
+functionWithSideEffects~ = 
+
+{lowRoot,highRoot} = quadratic {a = 1, b = -2, c = 1}
+
+case expression
+    | {name, id} = do with object
+    | val int = do with integer
+    | else = do in fallthrough
+
+case
+    | expression = do on if
+    | else = do on else
+
+results = loop
+    while~ = true
+    do~ = case "var"
+        | "var" = 5
+        | else = 4
+
+loop = case
+    | while~ {} =
+        head= do~ {}
+        tail= loop {do~, while~}
+    | else = `none
+
+ValidRange=
+  min _type
+  max _type
+
+# helper
+times = (callback i) for i in [1..count]
+
+isInRange = value <= max and value >= min
+
+inRange = {value= 5}.isInRange {min= 3, max= 7}
+
+
+import = [
+  library = "Standard.dll"
+  rules = [
+    {import = "*"},
+    {exclude = "System.StringHandling.UriEscaping"}
+  ]
+,
+  library = "Alternative.dll"
+  rules = [
+    {exclude = "*"},
+    {import = "Alternative.AlternativeUriEscaping"}
+  ]
+]
+
+exclude = [
+  namespaces = ["*"]
+  rules = [{exclude = "*"}]
+,
+  namespaces = [
+    "MyApp.Controller.*",
+    "MyApp.UI.*",
+    "MyApp.Logic.*",
+    "MyApp.Database.*"
+  ]
+  rules = [{import = "*"}]
+,
+  namespaces = [
+    "MyApp.UI.*",
+    "MyApp.Logic.*",
+    "MyApp.Database.*"
+  ]
+  rules = [{exclude = "MyApp.*"}]
+,
+  namespaces = ["MyApp.UI.*"]
+  rules = [{import = "*"}]
+,
+  namespaces = ["MyApp.Logic.*"]
+  rules = [{import = "*"}]
+,
+  namespaces = ["MyApp.Database.*"]
+  rules = [{import = "*"}]
+]
+
+
+It is a compile error to specify rules in an order where later patterns are less specific than earlier patterns because of the effect on readability.
+
+
+type = union-type | scope-type (some/none with values) | list-type | list-value
+
+toString = case object
+  | {atomic-value-string} : atomic-value
+  | {atomic-type-name} : atomic-type-name
+  | {union-type-

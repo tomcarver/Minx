@@ -1,248 +1,236 @@
-Readability
-Dependency Injection
-Ease/Speed of Learning
-Encourage functional approach, permit imperative approach
-declarative subset (MSON?)
-Ease of refactoring
+Minx (Programming language)
+===
 
-! mutability
-~ side effects on execution
-` symbol
-¬ specifies a name that should *not* occur in a scope (i.e. because it would duplicate another)
-= assignment
-: control flow (case)
-{} scope delimiters
-[] list delimiters
-() grouping
-| divide case clauses
-, list/scope dividers
-@ member-access
-# comments
-" strings
-$ the current scope
-' compile expression (meta)
+NB: Minx is currently under development, i.e. not working. This is all just vapourware at present.
 
-£;\
-for names = _a-zA-Z0-9?.¬
-for operators = *+-></^%&
+### Goals:
 
+- Maintainability (quick to refactor, hard to accidentally break)
+- Readable but opinionated (good code easy to read, bad code hard)
+- Dependency injection built in
+- Ease/Speed of Learning (i.e. planning for high language turnover)
+- Ease of refactoring
 
+### Paradigms
 
+- OOP without classes, inheritance, exceptions, events...
+- Encourage functional approach, permit imperative approach
+- Opt-out immutability and referential transparency
+- Declarative subset (Minx Scope/Object Notation?)
+- Static, Structural typing
+- Algebraic data types, hopefully made accessible
+- Minimalism in constructs
+- Case insensitive
 
+### Quick Reference:
 
-comment = "#", read-to-end-of-line
+## Overview
 
-#program = scope
-expression = group | meta | atom-value | atom-type | case | union-type | scope | list-value | "$" | name | application | cast | member-access | operator-application
+    # Scopes
+    #----------------------------------------------
+    # The fundamental data structure in Minx is the scope - a free-form version
+    # of the "map" or "data structure" or "object" concepts in other languages.
+    # A scope can be declared as
+    # 1) comma separated name declarations/assignments, delimited by braces
 
-group = "(", expression, ")"
-meta = "'", expression-to-compile, "'"
+    person = {firstName, surname}
+    me = {firstName = "Tom", surname = "Carver"}
 
-name = operator-name | non-operator-name
-operator-name = block of *+-></^%&
-non-operator-name = block of _a-zA-Z0-9?.!~¬
+    # 2) an indented block after "=" or ":"
 
-atom-value = int | decimal | string | symbol # bools are just symbols?
-atom-type = "int" | "decimal" | "string" | "symbol"
-symbol = "`", symbol-name
-string = """, any-sequence-other-than\", """   # {name} groups turn it into a function
+    another_person = 
+      firstName
+      surname
 
-scope = "{", [assign-or-declare, {"," , assign-or-declare}], "}"
-      | indent-after:or=, assign-or-declare, {new-line-at-same-initial-indentation assign-or-declare}, unindent
-      | file-start, assign-or-declare, {new-line-with-no-indentation assign-or-declare}, file-end
-assign-or-declare = single-assign-or-declare | multiple-assign
-multiple-assign = "{", declaration, { "," , declaration}, "}", "=", scope-valued-expression
-single-assign-or-declare = declaration, ["=", expression]
-declaration = name | typed-declaration
-typed-declaration = name, expression    # expression must not reduce to an atom-value
+    me_again =
+      firstName = "Tom"
+      surname = "Carver"
 
-case = "case", expression, { "|", case-match, ":", expression } [ "|", "else", ":", expression ]   # case captures until a parent group is ended - unindent, ), }, ], etc
-case-match = explicit-scope | typed-declaration | atom-value
-union-type = case-type, {"|", case-type}
-case-type = atom-valued-expression | atom-type-valued-expression | scope-valued-expression
+    # 3) or a source-file like this one! To this point, a scope of type
+    # {me, person, me_again, another_person} has been declared.
 
-list-value = "[" [expression , { "," , expression }] "]"    # type is just "list {itemType = __}
-           | "[", int, "..", int, "]"     # sugar for int ranges.    # ???
+    # The "type" of a scope is also a scope (person and another_person are valid
+    # types for both me_again and me). In fact any scope can be used as a type, 
+    # with any values being used as defaults. The "as" and "hide" keywords 
+    # are used for compile-time casts ("as" hides any names not specified). 
+    # Scopes can be combined 
 
-application = expression, scope-valued-expression
-operator-application = expression, operator-name, expression
+    a_to_e = {a = 1, b = 2, f = 4} as {a,b, c = 3, d = 4, e = 5}
+    a_and_e = a_to_e hide {b,c,d}
 
-member-access = scope-valued-expression, "@", name
+    # Declarations can specify types, but we'd consider it a bug if you had to.
+    # The facility exists purely for readability.
 
-# either of these acceptable as the last line of an indented scope
-cast = expression, "as", expression   # scope declarations without values take values from the expression
-     | expression, "hide", scope-valued-expression    # no values for scope declarations
+    myBrother_again person = {firstName string: "Hywel"} as me
 
+    # Case / Union data types
+    #----------------------------------------------
+    # All other values are "atoms" - e.g. the strings we saw above.
+    # "Symbols" are used to specify semantic data:
 
-while/for/lists or {head, tail}
+    reasonForFailure = `file_not_found
 
-case insensitive
-Overloading is fudged by the integrator, but method names within a single namespace must be unique. 
-Operator sugar: "1+2"  would essentially be   "plus {lhs: 1, rhs: 2}"
-compile time metaprogramming...
-generics = types that haven;t been supplied, even after usage
-mutable values can only be bound to a scope if it reads it before writing to it.
+    # Minx also has union data types that allow for a given symbol to contain
+    # multiple different types of data, while still ensuring type safety.
 
-method = function obj, result = method params    or   result = obj.method params
+    list = `empty_list
+         | {hd, tl list}
 
+    # The above line defines a recursive type that is either an "empty list"
+    # symbol or a scope defining a head and a tail.
+    # We work with this data structure using a case expression. Here's a 
+    # function for getting the item at an index in our list data structure:
 
-qsort = case list
-    | {head, tail} :
-        {matching, not-matching} = split {list = tail, condition = item < head}
-        as (qsort {list = matching}) + ([middle] + qsort {list = not-matching})
-    | else : `empty-list
+    item = case list
+           | {hd, tl} : case index
+                        | 0: hd 
+                        | else: item {list : tl, index : index - 1}
+           | else : `invalid_index
 
+    5thItem = item {list : someList, index : 4}
 
+    # This example will raise lots of questions to do with the way we just 
+    # defined that function that I'll get onto soon.
+    # The essentials to concentrate on are:
+    # 1) The parameter "list" had multiple valid types, so we used a case
+    #    expression to "pattern-match" the type we were interested in.
+    # 2) In the first clause of the case, we have another case expression,
+    #    this time on the "index" parameter, where we match the value only.
+    # 3) Both "case" expressions specify an "else" to be used if none of the
+    #    other clauses match. If "else" is omitted and pattern-matching is
+    #    not exhaustive, the initial expression is returned instead (i.e. the
+         symbol `empty_list would be returned instead of `invalid_index)
 
-functionWithSideEffects~ = 
+    # This example also shows well how symbols and union types are used to 
+    # communicate failure of operations rather than exceptions.
 
-me = {firstName = "Tom", surname = "Carver"}
+    # The plan is to introduce a meta system where you can specify your own 
+    # types as patterns for matching tokens. Then (e.g.) ints, floats,
+    # imaginary numbers can be implemented via regexes matching "2", "2.0"
+    # and "1.5_2.0i" respectively.
 
-me =
-  firstName = "Tom"
-  surname = "Carver"
+    # Functions
+    #----------------------------------------------
+    # Functions are just data structures with un-met dependencies. It is not
+    # necessary to specify the parameters a function takes because these vary
+    # depending on the way a function is being used. For example in the previous
+    # examples, we have used the following symbols:
+    #   0,1,2,3,4, string, -
+    # In most other languages, these would be hard-coded dependencies. Not in
+    # Minx - they are all parameters that need to be bound separately.
 
-currentUser = me as person   # compile time
+    # In practise no-one will lose any sleep over these examples; but 
+    # traditionally OOP has a big problem with this. We are encouraged to start
+    # by grouping functionality into classes first, and so off the bat we decide
+    # what data will be a field, what will be a parameter, what will be static
+    # etc. When these decisions are re-made, a lot of code needs to be 
+    # re-written as a result.
 
-functionWithValueBody = 4
+    # Here is the much more flexible Minx equivalent:
 
-functionWithScopeBody = [either of the me examples]
+    interface =
+      function1
+      function2
+      function3 = function1
 
-quadratic =
-  sqrtDet = sqrt (b*b - 4*a*c)
-  lowRoot = (-sqrtDet - b) / (2 * a)
-  highRoot =  (sqrtDet - b) / (2 * a)
-  as {lowRoot, highRoot}  # type
-[or]
-  hide {sqrtDet}   # type
+    functionSet = 
+      function1 = ...
+      function2 = ...
 
-{lowRoot,highRoot} = quadratic {a = 1, b = -2, c = 1}
+    fields = 
+      field1
+      field2
+      field3 = "default"
 
-case expression
-    | {name, id} = do with object
-    | val int = do with integer
-    | else = do in fallthrough
-
-case
-    | expression = do on if
-    | else = do on else
-
-results = loop
-    while~ = true
-    do~ = case "var"
-        | "var" = 5
-        | else = 4
-
-loop = case
-    | while~ {} =
-        head= do~ {}
-        tail= loop {do~, while~}
-    | else = `none
-
-ValidRange=
-  min _type
-  max _type
-
-# helper
-times = (callback i) for i in [1..count]
-
-isInRange = value <= max and value >= min
-
-inRange = {value= 5}.isInRange {min= 3, max= 7}
-
-
-import = [
-  library = "Standard.dll"
-  rules = [
-    {import = "*"},
-    {exclude = "System.StringHandling.UriEscaping"}
-  ]
-,
-  library = "Alternative.dll"
-  rules = [
-    {exclude = "*"},
-    {import = "Alternative.AlternativeUriEscaping"}
-  ]
-]
-
-exclude = [
-  namespaces = ["*"]
-  rules = [{exclude = "*"}]
-,
-  namespaces = [
-    "MyApp.Controller.*",
-    "MyApp.UI.*",
-    "MyApp.Logic.*",
-    "MyApp.Database.*"
-  ]
-  rules = [{import = "*"}]
-,
-  namespaces = [
-    "MyApp.UI.*",
-    "MyApp.Logic.*",
-    "MyApp.Database.*"
-  ]
-  rules = [{exclude = "MyApp.*"}]
-,
-  namespaces = ["MyApp.UI.*"]
-  rules = [{import = "*"}]
-,
-  namespaces = ["MyApp.Logic.*"]
-  rules = [{import = "*"}]
-,
-  namespaces = ["MyApp.Database.*"]
-  rules = [{import = "*"}]
-]
-
-
-It is a compile error to specify rules in an order where later patterns are less specific than earlier patterns because of the effect on readability.
-
-
-fields = 
-  field1
-  field2
-  field3 = "default"
-
-interface =
-  method1
-  method2
-  method3 = method1
-
-myClass = 
-  method1 = function1
-  method2 = function2
-  as interface
-
-instance = myClass
-  field1 = "mmm"
-  field2 = ""
-  as fields
+    instance = (functionSet
+      ({field1 = "mmm", field2 = ""} as fields))
+      as interface
 
 
 
+    # Operators
+    #------------------------------------------
+    # To implement infix operators, we shamelessly rip off the Haskell system:
+    # A function whose name consists solely of special characters is an infix
+    # operator. The operands are supplied as the names "lhs" and "rhs":
 
-# static "methodMissing" that maps between two interfaces.
-Interface1 = 
-  name string,
-  age int,
-  address string
+    + = case lhs
+        | {hd, tl} :
+            hd = hd
+            tl = tl + rhs
+        | else : rhs
 
-Interface2 = 
-  getName -> string,
-  getAge -> int,
-  getAddress -> string
+    plus = +
+    
+    using_op = [1,2,3] + [4,5,6]
+    not_using_op = plus {lhs: [1,2,3], rhs: [4,5,6]}
 
-Interface1._methodName = ->
-  return ~{ methodName.substring(3).toLower() }
+## Alphabet:
+    = assignment (mutable or immutable)
+    : control flow (case)
+    | divide case clauses/ union type clauses
+    , list/scope dividers
+    {} scope delimiters
+    [] list delimiters
+    () grouping
+    " strings delimiters
+    ' compile expression delimiters (meta)
+    ! mutability
+    ~ side effects on execution (results = function~ params)
+    ` symbol
+    ¬ specifies a name that should *not* occur in a scope (i.e. to avoid collision)
+    @ member-access (person@name)
+    # comments
+    $ the current scope
 
-Interface1.toString = 
-  toString @obj
+    _a-zA-Z0-9?.  valid non-operator name characters
+    *+-></^%&     valid operator characters
+
+    £;\           currently unused
+
+## BNF:
+
+    comment = "#", read-to-end-of-line
+
+    source-file = whole-file-scope
+    expression = group | meta | name | atom-value | atom-type | explicit-scope | case | union-type | list-value | "$" | function-application | operator-application | member-access | cast
+
+    group = "(", expression, ")"
+    meta = "'", expression-to-compile, "'"
+
+    name = operator-name | non-operator-name
+    operator-name = block of *+-></^%&
+    non-operator-name = block of _a-zA-Z0-9?.!~¬
+
+    atom-value = int | decimal | string | symbol # bools are just symbols?
+    atom-type = "int" | "decimal" | "string" | "symbol"
+    symbol = "`", symbol-name
+    string = """, any-sequence-other-than\", """   # {name} groups turn it into a function
+
+    explicit-scope =   "{", [assign-or-declare, {"," , assign-or-declare}], "}"
+    implicit-scope =   indent, assign-or-declare, {new-line-at-same-initial-indentation assign-or-declare}, unindent
+    whole-file-scope = file-start, assign-or-declare, {new-line-with-no-indentation assign-or-declare}, file-end
+
+    assign-or-declare = single-assign-or-declare | multiple-assign
+    multiple-assign = explicit-scope, "=", scope-valued-expression
+    single-assign-or-declare = declaration, ["=", (implict-scope | expression)]
+    declaration = name | typed-declaration
+    typed-declaration = name, expression    # expression must not reduce to an atom-value
+
+    case = "case", expression, { "|", pattern-match, ":", (implicit-scope | expression) }   # case captures until a parent group is ended - unindent, ), }, ], etc
+    pattern-match = explicit-scope | typed-declaration | atom-value | "else"
+    union-type = case-type, {"|", case-type}
+    case-type = atom-valued-expression | atom-type-valued-expression | scope-valued-expression
+
+    list-value = "[" [expression , { "," , expression }] "]"    # type is just "list {itemType = __}
+
+    function-application = function-valued-expression, scope-valued-expression
+    operator-application = expression, operator-name, expression
+
+    member-access = scope-valued-expression, "@", name
+
+    # either of these acceptable as the last line of an indented scope
+    cast = expression, "as", expression   # scope declarations without values take values from the expression
+         | expression, "hide", scope-valued-expression    # no values for scope declarations
 
 
-type = union-type | scope-type (some/none with values) | list-type | list-value
-
-
-toString = case object
-  | {atomic-value-string} : atomic-value
-  | {atomic-type-name} : atomic-type-name
-  | {union-type-
