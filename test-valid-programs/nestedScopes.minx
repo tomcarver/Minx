@@ -1,0 +1,10 @@
+{
+firstName = "Tom",
+surname = "Carver",
+age = 27,
+wife = {
+    firstName = "Catherine",
+    surname = "Carver",
+    age = 27},
+profession = `software_developer
+}

@@ -53,7 +53,7 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     # types for both me_again and me). In fact any scope can be used as a type, 
     # with any values being used as defaults. The "as" and "hide" keywords 
     # are used for compile-time casts ("as" hides any names not specified). 
-    # Scopes can be combined 
+    # Scopes can be combined.
 
     a_to_e = {a = 1, b = 2, f = 4} as {a,b, c = 3, d = 4, e = 5}
     a_and_e = a_to_e hide {b,c,d}
@@ -155,15 +155,18 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     # operator. The operands are supplied as the names "lhs" and "rhs":
 
     + = case lhs
-        | {hd, tl} :
-            hd = hd
-            tl = tl + rhs
+        | {hd, tl} : {tl : tl + rhs} as lhs
         | else : rhs
 
     plus = +
     
     using_op = [1,2,3] + [4,5,6]
     not_using_op = plus {lhs: [1,2,3], rhs: [4,5,6]}
+
+## Shelved
+
+- Significant whitespace - becoming a distraction. All scopes are currently explicit
+- Meta
 
 ## Alphabet:
     = assignment (mutable or immutable)
@@ -178,7 +181,6 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     ! mutability
     ~ side effects on execution (results = function~ params)
     ` symbol
-    ¬ specifies a name that should *not* occur in a scope (i.e. to avoid collision)
     @ member-access (person@name)
     # comments
     $ the current scope
@@ -193,18 +195,15 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     comment = "#", read-to-end-of-line
 
     source-file = whole-file-scope
-    expression = group | meta | name | atom-value | atom-type | explicit-scope | case | union-type | list-value | "$" | function-application | operator-application | member-access | cast
+    expression = group | meta | name | explicit-scope | list-value | "$" | case | union-type | function-application | operator-application | member-access | cast
 
     group = "(", expression, ")"
     meta = "'", expression-to-compile, "'"
 
-    name = operator-name | non-operator-name
+    name = operator-name | non-operator-name  # special cases are atom-value, atom-type, symbol
     operator-name = block of *+-></^%&
-    non-operator-name = block of _a-zA-Z0-9?.!~¬
+    non-operator-name = block of _a-zA-Z0-9?.!~
 
-    atom-value = int | decimal | string | symbol # bools are just symbols?
-    atom-type = "int" | "decimal" | "string" | "symbol"
-    symbol = "`", symbol-name
     string = """, any-sequence-other-than\", """   # {name} groups turn it into a function
 
     explicit-scope =   "{", [assign-or-declare, {"," , assign-or-declare}], "}"
@@ -217,12 +216,11 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     declaration = name | typed-declaration
     typed-declaration = name, expression    # expression must not reduce to an atom-value
 
-    case = "case", expression, { "|", pattern-match, ":", (implicit-scope | expression) }   # case captures until a parent group is ended - unindent, ), }, ], etc
-    pattern-match = explicit-scope | typed-declaration | atom-value | "else"
-    union-type = case-type, {"|", case-type}
-    case-type = atom-valued-expression | atom-type-valued-expression | scope-valued-expression
-
     list-value = "[" [expression , { "," , expression }] "]"    # type is just "list {itemType = __}
+
+    case = "case", non-union-expression, { "|", pattern-match, ":", (implicit-scope | expression) }   # case captures until a parent group is ended - ), }, ], etc
+    pattern-match = explicit-scope | typed-declaration | atom-valued-name | "else"
+    case-type = atom-valued-expression | atom-type-valued-expression | scope-valued-expression
 
     function-application = function-valued-expression, scope-valued-expression
     operator-application = expression, operator-name, expression
