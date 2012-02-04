@@ -39,8 +39,8 @@ class FileReader:
         else:
             self.unget(char)
 
-    def getIfEqualTo(self, testChar):
-        return self.getIf(lambda x : x == testChar)
+    def isNextChar(self, testChar):
+        return self.getIf(lambda x : x == testChar) != None
 
     def getWhile(self, test):
         got = []
@@ -76,46 +76,15 @@ class Tokenizer():
         if len(self.ungetted) != 0:
             return self.ungetted.pop()
 
-        indent = self.captureIndent()
-        if indent != None:
-            return indent
-
         char = self.charSource.get()
         if char == None:
             return None
-        
-        singleSymbols = {
-            "{" : TOKEN_OPEN_BRACE,
-            "}" : TOKEN_CLOSE_BRACE,
-            "[" : TOKEN_OPEN_BRACKET,
-            "]" : TOKEN_CLOSE_BRACKET,
-            "(" : TOKEN_OPEN_PARENTHESES,
-            ")" : TOKEN_CLOSE_PARENTHESES,
-            "$" : TOKEN_DOLLAR,
-            "=" : TOKEN_EQUALS,
-            ":" : TOKEN_COLON,
-            "|" : TOKEN_PIPE,
-            "," : TOKEN_COMMA,
-            "'" : TOKEN_SINGLEQUOTE,
-            "@" : TOKEN_AT
-        }
-        
-        if char in singleSymbols:
-            return (singleSymbols[char],)
-
         self.charSource.unget(char)
 
-        name = self.captureName()
-        if name != None:
-            return name
-
-        operator = self.captureOperator()
-        if operator != None:
-            return operator
-
-        string = self.captureString()
-        if string != None:
-            return string
+        for capturer in [self.captureIndent, self.captureSymbol, self.captureName, self.captureInfix, self.captureString]:
+            token = capturer()
+            if token != None:
+                return token
 
     def getIfOfType(self, tokenType):
         token = self.get()
@@ -147,7 +116,8 @@ class Tokenizer():
                 return (TOKEN_NEWLINE,)
             else:
                 self.indentStack.pop()
-                return self.findMatchingUnindent(indent)
+                self.queueFurtherUnindents(indent)
+                return (TOKEN_UNINDENT,)
 
     def compareIndents(self, lastIndent, newIndent):
         n1 = len(lastIndent)
@@ -157,32 +127,47 @@ class Tokenizer():
                 self.error("whitespace is inconsistent with previous line - indentation cannot be guessed")
         return n2 - n1
 
-    def findMatchingUnindent(self, indent):
+    def queueFurtherUnindents(self, indent):
         lastIndent = self.indentStack[-1]
         diff = self.compareIndents(lastIndent, indent)
         if diff > 0:
             self.error("cannot unindent to new indentation")
-        elif diff == 0:
-            return (TOKEN_UNINDENT,)
-        else:  # multiple unindents - store on the ungetted queue
+        elif diff < 0:
+            # multiple unindents - store on the ungetted queue
             self.indentStack.pop()
+            self.queueFurtherUnindents(indent)
             self.unget((TOKEN_UNINDENT,)) 
-            return self.findMatchingUnindent(indent)
 
     def skipCommentsAndNewLines(self):
-        found = False
-        char = self.charSource.getIfEqualTo("#")
-        if char != None:
-            found = True
+        foundComment = self.charSource.isNextChar("#")
+        if foundComment:
             self.charSource.getWhile(lambda char: char != "\r" and char != "\n")
 
-        if len(self.charSource.getFromString("\r\n")) > 0:
-            found = True
-
-        return found
+        return len(self.charSource.getFromString("\r\n")) > 0 or foundComment
         
     def captureWhitespace(self):
         return self.charSource.getFromString(''.join(map(chr, [0,9,12,32])))
+
+    def captureSymbol(self):        
+        singleSymbols = {
+            "{" : TOKEN_OPEN_BRACE,
+            "}" : TOKEN_CLOSE_BRACE,
+            "[" : TOKEN_OPEN_BRACKET,
+            "]" : TOKEN_CLOSE_BRACKET,
+            "(" : TOKEN_OPEN_PARENTHESES,
+            ")" : TOKEN_CLOSE_PARENTHESES,
+            "$" : TOKEN_DOLLAR,
+            "=" : TOKEN_EQUALS,
+            ":" : TOKEN_COLON,
+            "|" : TOKEN_PIPE,
+            "," : TOKEN_COMMA,
+            "'" : TOKEN_SINGLEQUOTE,
+            "@" : TOKEN_AT
+        }
+        
+        char = self.charSource.getIf(lambda c: c in singleSymbols)
+        if char != None:
+            return (singleSymbols[char],)
 
     def captureName(self):
         name = self.charSource.getFromString("_?.!~`$" + string.ascii_letters + string.digits)
@@ -194,21 +179,21 @@ class Tokenizer():
             "hide" : TOKEN_HIDE
         }
         
-        lowerName = name.toLower()
+        lowerName = name.lower()
         if lowerName in nameSymbols:
             return (nameSymbols[lowerName],)
-        return None if len(name) == 0 else (TOKEN_NAME, name)
+        if len(name) > 0:
+            return (TOKEN_NAME, name)
 
     def captureInfix(self):
         infix = self.charSource.getFromString("*+-></^%")
-        return infix if len(infix) == 0 else (TOKEN_INFIX, infix)
+        return None if len(infix) == 0 else (TOKEN_INFIX, infix)
 
     def captureString(self):
-        char = self.charSource.getIfEqualTo("\"")
-        if char != None:
+        if self.charSource.isNextChar("\""):
             strContents = []
             lastCharWasBackslash = False
-            char = charSource.get()
+            char = self.charSource.get()
             while lastCharWasBackslash or char != "\"":
                 strContents.append(char)
                 lastCharWasBackslash = (lastCharWasBackslash == False) and char == "\\"
