@@ -455,13 +455,9 @@ def Main():
     else:
         charSource = FileReader(args[0])
         tokenSource = Tokenizer(charSource)
-        token = tokenSource.get()
-        while token != None:
-            print repr(token)
-            token = tokenSource.get()
             
-        #expression = tryParseOne(tokenSource, [tryParseExplicitScope])
-        #print repr(expression)
+        expression = tryParseOne(tokenSource, [tryParseExplicitScope])
+        print repr(expression)
 
 if __name__ == '__main__':
     Main()
