@@ -2,6 +2,7 @@ import sys
 import string
 import optparse
 import logging
+import os
 
 
 class FileReader:
@@ -443,6 +444,7 @@ def Main():
 
     oParser = optparse.OptionParser(usage='usage: %prog [options] minx-source-file\n')
     oParser.add_option('-l', '--loglevel', default="WARNING", help='set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)')
+    oParser.add_option('-t', '--test', action='store_true', default=False, help='run the tests')
     (options, args) = oParser.parse_args()
 
     numeric_log_level = getattr(logging, options.loglevel.upper(), None)
@@ -450,11 +452,17 @@ def Main():
         raise ValueError('Invalid log level: %s' % options.loglevel)
     logging.basicConfig(level=numeric_log_level)
 
-    if len(args) != 1:
+    if options.test:
+        testPath = "./test-valid-programs/"
+        for path in os.listdir(testPath):
+            tokenSource = Tokenizer(FileReader(testPath + path))
+            expression = tryParseOne(tokenSource, [tryParseExplicitScope])
+        print "tests all passed"
+ 	
+    elif len(args) != 1:
         oParser.print_help()
     else:
-        charSource = FileReader(args[0])
-        tokenSource = Tokenizer(charSource)
+        tokenSource = Tokenizer(FileReader(args[0]))
             
         expression = tryParseOne(tokenSource, [tryParseExplicitScope])
         print repr(expression)
