@@ -1,4 +1,14 @@
 
 myString =   "my string containing a \" character, and for good measure, a trailing \\"
 
+view = "<html>
+<head>{headHtml}</head>
+<body>{bodyHtml}</body>
+</html>"
 
+bodyHtml = "<h1>{title}</h1>
+<p>{content}</p>"
+
+headHtml = "<head>{title}</head>"
+
+page = view {title = "My Page", content = "my content goes here" }

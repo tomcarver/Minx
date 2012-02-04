@@ -92,6 +92,8 @@ class Tokenizer():
             if token != None:
                 return token
 
+        self.error("unrecognised token")
+
     def getIfOfType(self, tokenType):
         token = self.get()
         if token != None:
@@ -187,7 +189,7 @@ class Tokenizer():
             return (singleSymbols[char],)
 
     def captureName(self):
-        name = self.charSource.getFromString("_?.!~`$" + string.ascii_letters + string.digits)
+        name = self.charSource.getFromString("_?.`$" + string.ascii_letters + string.digits)
 
         nameSymbols = {
             "case" : TOKEN_CASE,
@@ -200,11 +202,16 @@ class Tokenizer():
         if lowerName in nameSymbols:
             return (nameSymbols[lowerName],)
         if len(name) > 0:
-            return (TOKEN_NAME, name)
+            hasSideEffects = self.charSource.isNextChar('~')
+            isMutable = self.charSource.isNextChar('!')
+            return (TOKEN_NAME, name, hasSideEffects, isMutable)
 
     def captureInfix(self):
         infix = self.charSource.getFromString("*+-></^%")
-        return None if len(infix) == 0 else (TOKEN_INFIX, infix)
+        if len(infix) > 0:
+            hasSideEffects = self.charSource.isNextChar('~')
+            isMutable = self.charSource.isNextChar('!')
+            return (TOKEN_INFIX, infix, hasSideEffects, isMutable)
 
     def captureString(self):
         if self.charSource.isNextChar("\""):
@@ -252,21 +259,21 @@ TOKEN_FILESTART = 23
 TOKEN_FILEEND = 24
 
 
-PARSED_STRING = 0
-PARSED_CASE = 1
-PARSED_NAME = 2
-PARSED_INFIX = 3
-PARSED_META = 4
+PARSED_STRING = 0 # string contains names to match
+PARSED_CASE = 1  # expression, [branchpattern1, branchpattern2, branchexp], elseExp
+PARSED_NAME = 2  # string, hasSideEffects, isMutable
+PARSED_INFIX = 3 # string, hasSideEffects, isMutable
+PARSED_META = 4   # expression
 PARSED_DOLLAR = 5
-PARSED_LIST = 6
-PARSED_SCOPE = 7
+PARSED_LIST = 6  # [expression]
+PARSED_SCOPE = 7  # [declaration, declarationType, valueExp]
 
-PARSED_UNION_TYPE = 8
-PARSED_MEMBER_ACCESS = 9
-PARSED_AS = 10
-PARSED_HIDE = 11
+PARSED_UNION_TYPE = 8 # [expression]
+PARSED_MEMBER_ACCESS = 9 # expression, membername
+PARSED_AS = 10 # expression, filter
+PARSED_HIDE = 11 # expression, filter
 
-PARSED_APPLICATION = 12
+PARSED_APPLICATION = 12 # expression1, expression2  . Flaky - precedence, choosing between application and operator application...
 
 def tryParseOne(tokenSource, parserList):
     for parser in parserList:
@@ -312,16 +319,16 @@ def tryParseCase(tokenSource):
                 tokenSource.error("An else branch must be the last branch of a case statement.")
             isElse = False
             branchPattern = tryParseOne(tokenSource, [tryParseExplicitScope, tryParseName, tryParseInfix])
+            branchPattern_type = None
             if branchPattern == None:
                 isElse = tokenSource.isNextToken(TOKEN_ELSE)
                 if isElse == False:
                     tokenSource.error("expected pattern for this branch of the case statement")
-            
+
             elif branchPattern[0] in [PARSED_NAME, PARSED_INFIX]:
                 branchPattern_type = tryParseOne(tokenSource, [tryParseName])
-                branchPattern = [branchPattern, branchPattern_type]
 
-            logging.debug("parsed case branch pattern: {0}".format(repr(branchPattern)))
+            logging.debug("parsed case branch pattern: {0}, type {1}".format(repr(branchPattern), repr(branchPattern_type)))
 
             if tokenSource.isNextToken(TOKEN_COLON) == False:
                 tokenSource.error("expected \":\" after pattern in case branch.")
@@ -334,7 +341,7 @@ def tryParseCase(tokenSource):
             if isElse:
                 elseBranch = branchExp
             else:
-                branches.append((branchPattern, branchExp))
+                branches.append((branchPattern, branchPattern_type, branchExp))
             if pipesAreIndented:
                 if tokenSource.isNextToken(TOKEN_UNINDENT):
                     break
@@ -408,17 +415,19 @@ def tryParseExpression(tokenSource, includeUnions = True):
 
     return expression
 
-def tryParseTokenPair(tokenSource, tokenType, parsedType):
+def tryParseString(tokenSource):
+    token = tokenSource.getIfOfType(TOKEN_STRING)
+    return (PARSED_STRING, token[1]) if token != None else None
+
+def tryParseDollar(tokenSource):
+    return (PARSED_DOLLAR, ) if tokenSource.isNextToken(TOKEN_DOLLAR) else None
+
+def tryParseTokenQuad(tokenSource, tokenType, parsedType):
     token = tokenSource.getIfOfType(tokenType)
-    return (parsedType, token[1]) if token != None else None
+    return (parsedType, token[1], token[2], token[3]) if token != None else None
 
-def tryParseTokenSingle(tokenSource, tokenType, parsedType):
-    return (parsedType, ) if tokenSource.isNextToken(tokenType) else None
-
-tryParseString = lambda tokenSource: tryParseTokenPair(tokenSource, TOKEN_STRING, PARSED_STRING)
-tryParseName = lambda tokenSource: tryParseTokenPair(tokenSource, TOKEN_NAME, PARSED_NAME)
-tryParseInfix = lambda tokenSource: tryParseTokenPair(tokenSource, TOKEN_INFIX, PARSED_INFIX)
-tryParseDollar = lambda tokenSource: tryParseTokenSingle(tokenSource, TOKEN_DOLLAR, PARSED_DOLLAR)
+tryParseName = lambda tokenSource: tryParseTokenQuad(tokenSource, TOKEN_NAME, PARSED_NAME)
+tryParseInfix = lambda tokenSource: tryParseTokenQuad(tokenSource, TOKEN_INFIX, PARSED_INFIX)
 
 def tryParseList(tokenSource):
     if tokenSource.isNextToken(TOKEN_OPEN_BRACKET):
