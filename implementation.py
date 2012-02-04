@@ -39,17 +39,8 @@ class FileReader:
         else:
             self.unget(char)
 
-    def getIfEqualTo(self, testStr):
-        matched = []
-        for c in testStr:
-            char = self.getIf(lambda x : x == c)
-            if char == None:
-                for m in reversed(matched):
-                    self.unget(m)
-                return
-            else:
-                matched.append(char)
-        return matched
+    def getIfEqualTo(self, testChar):
+        return self.getIf(lambda x : x == testChar)
 
     def getWhile(self, test):
         got = []
@@ -57,34 +48,14 @@ class FileReader:
         while char != None:
             got.append(char)
             char = self.getIf(test)        
-        return got
-        
+        return ''.join(got)
 
+    def getFromString(self, string):
+        return self.getWhile(lambda char: char in string)
+        
     def unget(self, char):
         self.position -= 1
         self.ungetted.append(char)
-
-    def skipWhitespace(self):
-        self.captureWhitespace()
-
-        while self.skipCommentsAndNewLines():
-            self.captureWhitespace()
-
-    def skipCommentsAndNewLines(self):
-        found = False
-        char = self.getIfEqualTo("#")
-        if char != None:
-            found = True
-            self.getWhile(lambda char: char != "\r" and char != "\n")
-
-        if len(self.getWhile(lambda char: char == "\r" or char == "\n")) > 0:
-            found = True
-
-        return found
-        
-    def captureWhitespace(self):
-        self.getWhile(lambda char: char in ''.join(map(chr, [0,9,12,32])))
-
 
     def previousLineBreak(self):
         for br in reversed(self.lineBreaks):
@@ -95,112 +66,271 @@ class FileReader:
         prevLineBreak = self.previousLineBreak()
         return (prevLineBreak[0] + 1, self.position - prevLineBreak[1])
 
+class Tokenizer():
+    def __init__(self, charSource):
+        self.charSource = charSource
+        self.ungetted = []
+        self.indentStack = ['']
 
-def error(msg, charSource):
-    lineAndColNo = charSource.lineAndColNo()
-    raise Exception("{0}: line: {1}, col: {2}".format(msg, lineAndColNo[0], lineAndColNo[1]))
+    def get(self):
+        if len(self.ungetted) != 0:
+            return self.ungetted.pop()
+
+        indent = self.captureIndent()
+        if indent != None:
+            return indent
+
+        char = self.charSource.get()
+        if char == None:
+            return None
+        
+        singleSymbols = {
+            "{" : TOKEN_OPEN_BRACE,
+            "}" : TOKEN_CLOSE_BRACE,
+            "[" : TOKEN_OPEN_BRACKET,
+            "]" : TOKEN_CLOSE_BRACKET,
+            "(" : TOKEN_OPEN_PARENTHESES,
+            ")" : TOKEN_CLOSE_PARENTHESES,
+            "$" : TOKEN_DOLLAR,
+            "=" : TOKEN_EQUALS,
+            ":" : TOKEN_COLON,
+            "|" : TOKEN_PIPE,
+            "," : TOKEN_COMMA,
+            "'" : TOKEN_SINGLEQUOTE,
+            "@" : TOKEN_AT
+        }
+        
+        if char in singleSymbols:
+            return (singleSymbols[char],)
+
+        self.charSource.unget(char)
+
+        name = self.captureName()
+        if name != None:
+            return name
+
+        operator = self.captureOperator()
+        if operator != None:
+            return operator
+
+        string = self.captureString()
+        if string != None:
+            return string
+
+    def getIfOfType(self, tokenType):
+        token = self.get()
+        if token != None and token[0] == tokenType:
+            return token
+        else:
+            self.unget(token)
+
+    def isNextToken(self, tokenType):
+        return self.getIfOfType(tokenType) != None
+
+    def unget(self, token):
+        self.ungetted.append(token)
+
+    def captureIndent(self):
+        self.captureWhitespace()
+
+        indent = None
+        while self.skipCommentsAndNewLines():
+            indent = self.captureWhitespace()
+
+        if indent != None:
+            lastIndent = self.indentStack[-1]
+            diff = self.compareIndents(lastIndent, indent)
+            if diff > 0:
+                self.indentStack.append(indent)
+                return (TOKEN_INDENT,)
+            elif diff == 0:
+                return (TOKEN_NEWLINE,)
+            else:
+                self.indentStack.pop()
+                return self.findMatchingUnindent(indent)
+
+    def compareIndents(self, lastIndent, newIndent):
+        n1 = len(lastIndent)
+        n2 = len(newIndent)
+        for i in range(min(n1, n2)):
+            if lastIndent[i] != newIndent[i]:
+                self.error("whitespace is inconsistent with previous line - indentation cannot be guessed")
+        return n2 - n1
+
+    def findMatchingUnindent(self, indent):
+        lastIndent = self.indentStack[-1]
+        diff = self.compareIndents(lastIndent, indent)
+        if diff > 0:
+            self.error("cannot unindent to new indentation")
+        elif diff == 0:
+            return (TOKEN_UNINDENT,)
+        else:  # multiple unindents - store on the ungetted queue
+            self.indentStack.pop()
+            self.unget((TOKEN_UNINDENT,)) 
+            return self.findMatchingUnindent(indent)
+
+    def skipCommentsAndNewLines(self):
+        found = False
+        char = self.charSource.getIfEqualTo("#")
+        if char != None:
+            found = True
+            self.charSource.getWhile(lambda char: char != "\r" and char != "\n")
+
+        if len(self.charSource.getFromString("\r\n")) > 0:
+            found = True
+
+        return found
+        
+    def captureWhitespace(self):
+        return self.charSource.getFromString(''.join(map(chr, [0,9,12,32])))
+
+    def captureName(self):
+        name = self.charSource.getFromString("_?.!~`$" + string.ascii_letters + string.digits)
+
+        nameSymbols = {
+            "case" : TOKEN_CASE,
+            "else" : TOKEN_ELSE,
+            "as" : TOKEN_AS,
+            "hide" : TOKEN_HIDE
+        }
+        
+        lowerName = name.toLower()
+        if lowerName in nameSymbols:
+            return (nameSymbols[lowerName],)
+        return None if len(name) == 0 else (TOKEN_NAME, name)
+
+    def captureInfix(self):
+        infix = self.charSource.getFromString("*+-></^%")
+        return infix if len(infix) == 0 else (TOKEN_INFIX, infix)
+
+    def captureString(self):
+        char = self.charSource.getIfEqualTo("\"")
+        if char != None:
+            strContents = []
+            lastCharWasBackslash = False
+            char = charSource.get()
+            while lastCharWasBackslash or char != "\"":
+                strContents.append(char)
+                lastCharWasBackslash = (lastCharWasBackslash == False) and char == "\\"
+                char = self.charSource.get()
+            return (TOKEN_STRING, ''.join(strContents))
+
+    def error(self, msg):
+        lineAndColNo = self.charSource.lineAndColNo()
+        raise Exception("{0}: line: {1}, col: {2}".format(msg, lineAndColNo[0], lineAndColNo[1]))
+
+TOKEN_OPEN_BRACE = 0
+TOKEN_CLOSE_BRACE = 1
+TOKEN_OPEN_BRACKET = 2
+TOKEN_CLOSE_BRACKET = 3
+TOKEN_OPEN_PARENTHESES = 4
+TOKEN_CLOSE_PARENTHESES = 5
+TOKEN_DOLLAR = 6
+TOKEN_EQUALS = 7
+TOKEN_COLON = 8
+TOKEN_PIPE = 9
+TOKEN_COMMA = 10
+TOKEN_SINGLEQUOTE = 11
+TOKEN_AT = 12
+
+TOKEN_CASE = 13
+TOKEN_ELSE = 14
+TOKEN_AS = 15
+TOKEN_HIDE = 16
+
+TOKEN_STRING = 17
+TOKEN_NAME = 18
+TOKEN_INFIX = 19
+
+TOKEN_INDENT = 20
+TOKEN_UNINDENT = 21
+TOKEN_NEWLINE = 22
 
 
-TOKEN_STRING = 0
-TOKEN_CASE = 1
-TOKEN_NAME = 2
-TOKEN_INFIX = 3
-TOKEN_META = 4
-TOKEN_DOLLAR = 5
-TOKEN_LIST = 6
-TOKEN_SCOPE = 7
 
-TOKEN_UNION_TYPE = 8
-TOKEN_MEMBER_ACCESS = 9
-TOKEN_AS = 10
-TOKEN_HIDE = 11
+PARSED_STRING = 0
+PARSED_CASE = 1
+PARSED_NAME = 2
+PARSED_INFIX = 3
+PARSED_META = 4
+PARSED_DOLLAR = 5
+PARSED_LIST = 6
+PARSED_SCOPE = 7
 
-TOKEN_APPLICATION = 12
+PARSED_UNION_TYPE = 8
+PARSED_MEMBER_ACCESS = 9
+PARSED_AS = 10
+PARSED_HIDE = 11
 
-def tryParseOne(charSource, parserList):
-    charSource.skipWhitespace()
+PARSED_APPLICATION = 12
+
+def tryParseOne(tokenSource, parserList):
     for parser in parserList:
-        parsed = parser(charSource)
+        parsed = parser(tokenSource)
         if parsed != None:
             return parsed
 
-def tryParseFromCharList(charSource, token, validList):
-    captured = charSource.getWhile(lambda char: char in validList)
-    return None if len(captured) == 0 else (token, ''.join(captured))
-
-
-def tryParseMeta(charSource):
-    char = charSource.getIfEqualTo("'")
-    if char != None:
-        expression = tryParseOne(charSource, [tryParseExpression])
+def tryParseMeta(tokenSource):
+    if tokenSource.isNextToken(TOKEN_SINGLEQUOTE):
+        expression = tryParseOne(tokenSource, [tryParseExpression])
         if expression == None:
-            error("expected expression between single quotes for meta ", charSource)
+            tokenSource.error("expected expression between single quotes for meta ")
 
-        charSource.skipWhitespace()
-        endChar = charSource.getIfEqualTo("'")
-        if endChar == None:
-            error("expected closing single quote for meta", charSource)
+        if tokenSource.isNextToken(TOKEN_SINGLEQUOTE) == False:
+            tokenSource.error("expected closing single quote for meta")
 
-        return (TOKEN_META, expression)
+        return (PARSED_META, expression)
 
-def tryParseGroup(charSource):
-    char = charSource.getIfEqualTo("(")
-    if char != None:
-        expression = tryParseOne(charSource, [tryParseExpression])
+def tryParseGroup(tokenSource):
+    if tokenSource.isNextToken(TOKEN_OPEN_PARENTHESES):
+        expression = tryParseOne(tokenSource, [tryParseExpression])
         if expression == None:
-            error("expected expression between parentheses \"()\"", charSource)
+            tokenSource.error("expected expression between parentheses \"()\"")
 
-        charSource.skipWhitespace()
-        endChar = charSource.getIfEqualTo(")")
-        if endChar == None:
-            error("expected closing parenthesis \")\"", charSource)
+        if tokenSource.isNextToken(TOKEN_CLOSE_PARENTHESES) == False:
+            tokenSource.error("expected closing parenthesis \")\"")
 
         return expression
 
-def tryParseCase(charSource):
-    case = charSource.getIfEqualTo("case")
-    if case != None:
-        exp = tryParseOne(charSource, [tryParseNonUnionExpression])
+def tryParseCase(tokenSource):
+    if tokenSource.isNextToken(TOKEN_CASE):
+        exp = tryParseOne(tokenSource, [tryParseNonUnionExpression])
         if exp == None:
-            error("expected expression as starting point for case statement", charSource)
+            tokenSource.error("expected expression as starting point for case statement")
         logging.debug("parsed case generator expression: {0}".format(repr(exp)))
 
         branches = []
 
-        charSource.skipWhitespace()
-        while charSource.getIfEqualTo("|") != None:
-            # TODO compare pattern with "else".
-            branchPattern = tryParseOne(charSource, [tryParseExplicitScope, tryParseName, tryParseInfix])
+        while tokenSource.isNextToken(TOKEN_PIPE):
+            branchPattern = tryParseOne(tokenSource, [tryParseExplicitScope, tryParseName, tryParseInfix, tryParseElse])
             if branchPattern == None:
-                error("expected pattern for this branch of the case statement", charSource)
+                tokenSource.error("expected pattern for this branch of the case statement")
                 
             logging.debug("parsed: {0}".format(repr(branchPattern)))
-            if branchPattern[0] in [TOKEN_NAME, TOKEN_INFIX]:
-                branchPattern_type = tryParseOne(charSource, [tryParseName])
+            if branchPattern[0] in [PARSED_NAME, PARSED_INFIX]:
+                branchPattern_type = tryParseOne(tokenSource, [tryParseName])
                 branchPattern = [branchPattern, branchPattern_type]
 
             logging.debug("parsed case branch pattern: {0}".format(repr(branchPattern)))
 
-            charSource.skipWhitespace()
-            if charSource.getIfEqualTo(":") == None:
-                error("expected \":\" after pattern in case branch.", charSource)
+            if tokenSource.isNextToken(TOKEN_COLON) == False:
+                tokenSource.error("expected \":\" after pattern in case branch.")
 
-            branchExp = tryParseOne(charSource, [tryParseNonUnionExpression])
+            branchExp = tryParseOne(tokenSource, [tryParseNonUnionExpression])
             if branchExp == None:
-                error("expected expression for this branch of the case statement", charSource)
+                tokenSource.error("expected expression for this branch of the case statement")
             logging.debug("parsed case branch expression: {0}".format(repr(branchExp)))
 
             branches.append((branchPattern, branchExp))
-            charSource.skipWhitespace()
         
         if len(branches) == 0:
-            error("case statements require at least one branch (expected |)", charSource)
+            tokenSource.error("case statements require at least one branch (expected |)")
 
-        return (TOKEN_CASE, exp, branches)
+        return (PARSED_CASE, exp, branches)
 
-tryParseNonUnionExpression = lambda charSource : tryParseExpression(charSource, False)
+tryParseNonUnionExpression = lambda tokenSource : tryParseExpression(tokenSource, False)
 
-def tryParseExpression(charSource, includeUnions = True): 
+def tryParseExpression(tokenSource, includeUnions = True): 
     # try to parse starters first; then if match found, try to parse trailers
     mainParsers = [
       tryParseDollar, 
@@ -213,7 +343,7 @@ def tryParseExpression(charSource, includeUnions = True):
       tryParseInfix,
       tryParseString]
 
-    expression = tryParseOne(charSource, mainParsers)
+    expression = tryParseOne(tokenSource, mainParsers)
 
     if expression == None:
         return None      
@@ -222,137 +352,106 @@ def tryParseExpression(charSource, includeUnions = True):
     while stillMatching:
         stillMatching = False
 
-        if includeUnions:
-            charSource.skipWhitespace()
-            char = charSource.getIfEqualTo("|")
-            if (char != None):
-                nextExpression = tryParseExpression(charSource)
-                if nextExpression == None:
-                    error("expected expression for next type in union after \"|\"", charSource)
-                if nextExpression[0] == TOKEN_UNION_TYPE:
-                    expression = (TOKEN_UNION_TYPE, [expression] + nextExpression[1])
-                else:
-                    expression = (TOKEN_UNION_TYPE, [expression, nextExpression])
-                stillMatching = True
+        if includeUnions and tokenSource.isNextToken(TOKEN_PIPE):
+            nextExpression = tryParseExpression(tokenSource)
+            if nextExpression == None:
+                tokenSource.error("expected expression for next type in union after \"|\"")
+            if nextExpression[0] == PARSED_UNION_TYPE:
+                expression = (PARSED_UNION_TYPE, [expression] + nextExpression[1])
+            else:
+                expression = (PARSED_UNION_TYPE, [expression, nextExpression])
+            stillMatching = True
 
-        charSource.skipWhitespace()
-        char = charSource.getIfEqualTo("@")
-        if (char != None):
-            member_name = tryParseOne(charSource, [tryParseName, tryParseInfix])
+        if tokenSource.isNextToken(TOKEN_AT):
+            member_name = tryParseOne(tokenSource, [tryParseName, tryParseInfix])
             if member_name == None:
-                error("expected member name after member-access character \"@\"", charSource)
-            expression = (TOKEN_MEMBER_ACCESS, expression, member_name)
+                tokenSource.error("expected member name after member-access character \"@\"")
+            expression = (PARSED_MEMBER_ACCESS, expression, member_name)
             stillMatching = True
 
-        charSource.skipWhitespace()
-        match = charSource.getIfEqualTo("as")
-        if (match == None):
-            match = charSource.getIfEqualTo("hide")
-        if (match != None):
-            filter = tryParseExpression(charSource, includeUnions)
+        if tokenSource.isNextToken(TOKEN_AS):
+            filter = tryParseExpression(tokenSource, includeUnions)
             if filter == None:
-                error("expected filter after cast \"{0}\"".format(char), charSource)
-            expression = (TOKEN_AS if char == "as" else TOKEN_HIDE, expression, filter)
+                tokenSource.error("expected filter after \"as\"")
+            expression = (PARSED_AS, expression, filter)
             stillMatching = True
 
-        nextExpression = tryParseOne(charSource, mainParsers)
+        if tokenSource.isNextToken(TOKEN_HIDE):
+            filter = tryParseExpression(tokenSource, includeUnions)
+            if filter == None:
+                tokenSource.error("expected filter after \"hide\"")
+            expression = (PARSED_HIDE, expression, filter)
+            stillMatching = True
+
+        nextExpression = tryParseOne(tokenSource, mainParsers)
         if (nextExpression != None):
-            expression = (TOKEN_APPLICATION, expression, nextExpression)
+            expression = (PARSED_APPLICATION, expression, nextExpression)
             stillMatching = True
 
     return expression
 
-def tryParseString(charSource):
-    char = charSource.getIfEqualTo("\"")
-    if char != None:
-        strContents = []
-        lastCharWasBackslash = False
-        char = charSource.get()
-        while lastCharWasBackslash or char != "\"":
-            strContents.append(char)
-            lastCharWasBackslash = (lastCharWasBackslash == False) and char == "\\"
-            char = charSource.get()
-        return (TOKEN_STRING, ''.join(strContents))
+def tryParseTokenPair(tokenSource, tokenType, parsedType):
+    token = tokenSource.getIfOfType(tokenType)
+    return (parsedType, token[1]) if token != None else None
 
+def tryParseTokenSingle(tokenSource, tokenType, parsedType):
+    return (parsedType, ) if tokenSource.isNextToken(tokenType) else None
 
-def compareIndents(lastIndent, newIndent):
-    n1 = len(lastIndent)
-    n2 = len(newIndent)
-    for i in range(min(n1, n2)):
-        if lastIndent[i] != newIndent[i]:
-            error("whitespace is inconsistent with previous line - indentation cannot be guessed", charSource)
-    return n2 - n1
+tryParseString = lambda tokenSource: tryParseTokenPair(tokenSource, TOKEN_STRING, PARSED_STRING)
+tryParseName = lambda tokenSource: tryParseTokenPair(tokenSource, TOKEN_NAME, PARSED_NAME)
+tryParseInfix = lambda tokenSource: tryParseTokenPair(tokenSource, TOKEN_INFIX, PARSED_INFIX)
+tryParseDollar = lambda tokenSource: tryParseTokenSingle(tokenSource, TOKEN_DOLLAR, PARSED_DOLLAR)
 
-
-# currently matches atom-values and atom-types too
-tryParseName = lambda charSource: tryParseFromCharList(charSource, TOKEN_NAME, "_?.!~`$" + string.ascii_letters + string.digits)
-tryParseInfix = lambda charSource: tryParseFromCharList(charSource, TOKEN_INFIX, "*+-></^%")
-
-def tryParseDollar(charSource,):
-    char = charSource.getIfEqualTo("$")
-    if char != None:
-        return (TOKEN_DOLLAR,)
-
-def tryParseList(charSource):
-    char = charSource.getIfEqualTo("[")
-    if char != None:
+def tryParseList(tokenSource):
+    if tokenSource.isNextToken(TOKEN_OPEN_BRACKET):
         contents = []
 
-        charSource.skipWhitespace()
-        atEnd = charSource.getIfEqualTo("]") != None
+        atEnd = tokenSource.isNextToken(TOKEN_CLOSE_BRACKET)
         while atEnd == False:
-            exp = tryParseOne(charSource, [tryParseExpression])
+            exp = tryParseOne(tokenSource, [tryParseExpression])
             if exp == None:
-                error('Expected expression in list definition', charSource) 
+                tokenSource.error('Expected expression in list definition') 
 
             contents.append(exp)
 
-            charSource.skipWhitespace()
-            comma = charSource.getIfEqualTo(",")
-            if comma == None:
-                atEnd = charSource.getIfEqualTo("]") != None
+            if tokenSource.isNextToken(TOKEN_COMMA) == False:
+                atEnd = tokenSource.isNextToken(TOKEN_CLOSE_BRACKET)
                 if atEnd == False:
-                    error('Expected end bracket (\"]\") for list end or comma for item separation.', charSource)
+                    tokenSource.error('Expected end bracket (\"]\") for list end or comma for item separation.')
 
-        return (TOKEN_LIST, contents)
+        return (PARSED_LIST, contents)
 
-def tryParseExplicitScope(charSource):
-    char = charSource.getIfEqualTo("{")
-    if char != None:
+def tryParseExplicitScope(tokenSource):
+    if tokenSource.isNextToken(TOKEN_OPEN_BRACE):
         scopeDeclarations = []
 
         nameParsers = [tryParseExplicitScope, tryParseName, tryParseInfix]
 
-        charSource.skipWhitespace()
-        atEnd = charSource.getIfEqualTo("}") != None
+        atEnd = tokenSource.isNextToken(TOKEN_CLOSE_BRACE)
         while atEnd == False:
-            declaration = tryParseOne(charSource, nameParsers)
+            declaration = tryParseOne(tokenSource, nameParsers)
             if declaration == None:
-                error('Expected name declaration in scope definition', charSource) 
+                tokenSource.error('Expected name declaration in scope definition') 
                 
             logging.debug("parsed: {0}".format(repr(declaration)))
             declaration_type = None
-            if declaration[0] in [TOKEN_NAME, TOKEN_INFIX]:
-                declaration_type = tryParseOne(charSource, [tryParseExpression])
+            if declaration[0] in [PARSED_NAME, PARSED_INFIX]:
+                declaration_type = tryParseOne(tokenSource, [tryParseExpression])
 
             value = None
-            charSource.skipWhitespace()
-            equals = charSource.getIfEqualTo("=")
-            if equals != None:
-                value = tryParseOne(charSource, [tryParseExpression])
+            if tokenSource.isNextToken(TOKEN_EQUALS):
+                value = tryParseOne(tokenSource, [tryParseExpression])
                 if value == None:
-                    error('Expected value after equals sign in scope declaration', charSource) 
+                    tokenSource.error('Expected value after equals sign in scope declaration') 
 
             scopeDeclarations.append((declaration, declaration_type, value))
 
-            charSource.skipWhitespace()
-            comma = charSource.getIfEqualTo(",")
-            if comma == None:
-                atEnd = charSource.getIfEqualTo("}") != None
+            if tokenSource.isNextToken(TOKEN_COMMA) == False:
+                atEnd = tokenSource.isNextToken(TOKEN_CLOSE_BRACE)
                 if atEnd == False:
-                    error('Expected end brace (\"}\")for scope end or comma for member separation.', charSource)
+                    tokenSource.error('Expected end brace (\"}\")for scope end or comma for member separation.')
 
-        return (TOKEN_SCOPE, scopeDeclarations)
+        return (PARSED_SCOPE, scopeDeclarations)
 
 
 def Main():
@@ -370,8 +469,14 @@ def Main():
         oParser.print_help()
     else:
         charSource = FileReader(args[0])
-        expression = tryParseOne(charSource, [tryParseExplicitScope])
-        print repr(expression)
+        tokenSource = Tokenizer(charSource)
+        token = tokenSource.get()
+        while token != None:
+            print repr(token)
+            token = tokenSource.get()
+            
+        #expression = tryParseOne(tokenSource, [tryParseExplicitScope])
+        #print repr(expression)
 
 if __name__ == '__main__':
     Main()
