@@ -29,9 +29,9 @@ class FileReader:
         if (char == '\r' or char == '\n'):
             lastBreak = self.lineBreaks[-1]
             if lastBreak[1] == self.position - 1 and lastBreak[2] == '\r' and char == '\n':
-                self.lineBreaks[-1] = (len(self.lineBreaks), self.position, '\r\n')
+                self.lineBreaks[-1] = (lastBreak[0], self.position, '\r\n')
             else:
-                self.lineBreaks.append((len(self.lineBreaks) + 1, self.position, char)) 
+                self.lineBreaks.append((lastBreak[0] + 1, self.position, char)) 
 
     def getIf(self, test):
         char = self.get()
@@ -42,6 +42,12 @@ class FileReader:
 
     def isNextChar(self, testChar):
         return self.getIf(lambda x : x == testChar) != None
+
+    def isAtEnd(self):
+        char = self.get()
+        if char == None:
+            return True
+        self.unget(char)
 
     def getWhile(self, test):
         got = []
@@ -70,17 +76,16 @@ class FileReader:
 class Tokenizer():
     def __init__(self, charSource):
         self.charSource = charSource
-        self.ungetted = []
         self.indentStack = ['']
+        self.captureIndent()
+        self.ungetted = [(TOKEN_FILESTART,)]
 
     def get(self):
         if len(self.ungetted) != 0:
             return self.ungetted.pop()
 
-        char = self.charSource.get()
-        if char == None:
-            return None
-        self.charSource.unget(char)
+        if self.charSource.isAtEnd():
+            return (TOKEN_FILEEND,)
 
         for capturer in [self.captureIndent, self.captureSymbol, self.captureName, self.captureInfix, self.captureString]:
             token = capturer()
@@ -89,10 +94,11 @@ class Tokenizer():
 
     def getIfOfType(self, tokenType):
         token = self.get()
-        if token != None and token[0] == tokenType:
-            return token
-        else:
-            self.unget(token)
+        if token != None:
+            if token[0] == tokenType:
+                return token
+            else:
+                self.unget(token)
 
     def isNextToken(self, tokenType):
         return self.getIfOfType(tokenType) != None
@@ -107,6 +113,12 @@ class Tokenizer():
         while self.skipCommentsAndNewLines():
             indent = self.captureWhitespace()
 
+        if self.charSource.isAtEnd():
+            # ignore the indent - just unget outstanding unindents and eof.
+            self.unget((TOKEN_FILEEND,))
+            self.queueFurtherUnindents('')
+            return self.ungetted.pop()
+
         if indent != None:
             lastIndent = self.indentStack[-1]
             diff = self.compareIndents(lastIndent, indent)
@@ -116,7 +128,10 @@ class Tokenizer():
             elif diff == 0:
                 return (TOKEN_NEWLINE,)
             else:
+                # an unindent is strictly speaking one or more unindents, then 
+                # a newline at the old indentation level
                 self.indentStack.pop()
+                self.unget((TOKEN_NEWLINE,))
                 self.queueFurtherUnindents(indent)
                 return (TOKEN_UNINDENT,)
 
@@ -168,6 +183,7 @@ class Tokenizer():
         
         char = self.charSource.getIf(lambda c: c in singleSymbols)
         if char != None:
+            logging.debug("found symbol: {0}".format(char))
             return (singleSymbols[char],)
 
     def captureName(self):
@@ -203,7 +219,7 @@ class Tokenizer():
 
     def error(self, msg):
         lineAndColNo = self.charSource.lineAndColNo()
-        raise Exception("{0}: line: {1}, col: {2}".format(msg, lineAndColNo[0], lineAndColNo[1]))
+        raise Exception("{0}: line: {1}, col: {2}. Next token:{3}".format(msg, lineAndColNo[0], lineAndColNo[1], repr(self.get())))
 
 TOKEN_OPEN_BRACE = 0
 TOKEN_CLOSE_BRACE = 1
@@ -232,6 +248,8 @@ TOKEN_INDENT = 20
 TOKEN_UNINDENT = 21
 TOKEN_NEWLINE = 22
 
+TOKEN_FILESTART = 23
+TOKEN_FILEEND = 24
 
 
 PARSED_STRING = 0
@@ -286,14 +304,20 @@ def tryParseCase(tokenSource):
         logging.debug("parsed case generator expression: {0}".format(repr(exp)))
 
         branches = []
+        elseBranch = None
+        pipesAreIndented = tokenSource.isNextToken(TOKEN_INDENT)
 
         while tokenSource.isNextToken(TOKEN_PIPE):
-            branchPattern = tryParseOne(tokenSource, [tryParseExplicitScope, tryParseName, tryParseInfix, tryParseElse])
+            if elseBranch != None:
+                tokenSource.error("An else branch must be the last branch of a case statement.")
+            isElse = False
+            branchPattern = tryParseOne(tokenSource, [tryParseExplicitScope, tryParseName, tryParseInfix])
             if branchPattern == None:
-                tokenSource.error("expected pattern for this branch of the case statement")
-                
-            logging.debug("parsed: {0}".format(repr(branchPattern)))
-            if branchPattern[0] in [PARSED_NAME, PARSED_INFIX]:
+                isElse = tokenSource.isNextToken(TOKEN_ELSE)
+                if isElse == False:
+                    tokenSource.error("expected pattern for this branch of the case statement")
+            
+            elif branchPattern[0] in [PARSED_NAME, PARSED_INFIX]:
                 branchPattern_type = tryParseOne(tokenSource, [tryParseName])
                 branchPattern = [branchPattern, branchPattern_type]
 
@@ -302,17 +326,25 @@ def tryParseCase(tokenSource):
             if tokenSource.isNextToken(TOKEN_COLON) == False:
                 tokenSource.error("expected \":\" after pattern in case branch.")
 
-            branchExp = tryParseOne(tokenSource, [tryParseNonUnionExpression])
+            branchExp = tryParseOne(tokenSource, [tryParseImplicitScope, tryParseNonUnionExpression])
             if branchExp == None:
                 tokenSource.error("expected expression for this branch of the case statement")
             logging.debug("parsed case branch expression: {0}".format(repr(branchExp)))
 
-            branches.append((branchPattern, branchExp))
+            if isElse:
+                elseBranch = branchExp
+            else:
+                branches.append((branchPattern, branchExp))
+            if pipesAreIndented:
+                if tokenSource.isNextToken(TOKEN_UNINDENT):
+                    break
+                elif tokenSource.isNextToken(TOKEN_NEWLINE) == False:
+                    tokenSource.error("expected indentation matching first branch in the case statement")
         
         if len(branches) == 0:
-            tokenSource.error("case statements require at least one branch (expected |)")
+            tokenSource.error("case statements require at least one non-else branch (expected |)")
 
-        return (PARSED_CASE, exp, branches)
+        return (PARSED_CASE, exp, branches, elseBranch)
 
 tryParseNonUnionExpression = lambda tokenSource : tryParseExpression(tokenSource, False)
 
@@ -407,41 +439,49 @@ def tryParseList(tokenSource):
 
         return (PARSED_LIST, contents)
 
-def tryParseExplicitScope(tokenSource):
-    if tokenSource.isNextToken(TOKEN_OPEN_BRACE):
+
+tryParseExplicitScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_OPEN_BRACE, TOKEN_COMMA, TOKEN_CLOSE_BRACE)
+tryParseImplicitScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_INDENT, TOKEN_NEWLINE, TOKEN_UNINDENT)
+tryParseWholeFileScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_FILESTART, TOKEN_NEWLINE, TOKEN_FILEEND)
+
+def tryParseScope(tokenSource, startToken, separatorToken, endToken):
+    if tokenSource.isNextToken(startToken):
+        logging.debug("found scope start token: {0}".format(startToken))
         scopeDeclarations = []
 
         nameParsers = [tryParseExplicitScope, tryParseName, tryParseInfix]
 
-        atEnd = tokenSource.isNextToken(TOKEN_CLOSE_BRACE)
+        atEnd = tokenSource.isNextToken(endToken)
         while atEnd == False:
             declaration = tryParseOne(tokenSource, nameParsers)
             if declaration == None:
                 tokenSource.error('Expected name declaration in scope definition') 
                 
-            logging.debug("parsed: {0}".format(repr(declaration)))
+            logging.debug("parsed declaration: {0}".format(repr(declaration)))
             declaration_type = None
             if declaration[0] in [PARSED_NAME, PARSED_INFIX]:
                 declaration_type = tryParseOne(tokenSource, [tryParseExpression])
+                logging.debug("parsed declaration type: {0}".format(repr(declaration_type)))
 
             value = None
             if tokenSource.isNextToken(TOKEN_EQUALS):
-                value = tryParseOne(tokenSource, [tryParseExpression])
+                logging.debug("found equals sign")
+                value = tryParseOne(tokenSource, [tryParseImplicitScope, tryParseExpression])
+                logging.debug("parsed value: {0}".format(repr(value)))
                 if value == None:
                     tokenSource.error('Expected value after equals sign in scope declaration') 
 
             scopeDeclarations.append((declaration, declaration_type, value))
 
-            if tokenSource.isNextToken(TOKEN_COMMA) == False:
-                atEnd = tokenSource.isNextToken(TOKEN_CLOSE_BRACE)
+            if tokenSource.isNextToken(separatorToken) == False:
+                atEnd = tokenSource.isNextToken(endToken)
                 if atEnd == False:
-                    tokenSource.error('Expected end brace (\"}\")for scope end or comma for member separation.')
+                    tokenSource.error('Expected scope end or comma for member separation.')
 
         return (PARSED_SCOPE, scopeDeclarations)
 
 
 def Main():
-
     oParser = optparse.OptionParser(usage='usage: %prog [options] minx-source-file\n')
     oParser.add_option('-l', '--loglevel', default="WARNING", help='set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)')
     oParser.add_option('-t', '--test', action='store_true', default=False, help='run the tests')
@@ -455,8 +495,10 @@ def Main():
     if options.test:
         testPath = "./test-valid-programs/"
         for path in os.listdir(testPath):
-            tokenSource = Tokenizer(FileReader(testPath + path))
-            expression = tryParseOne(tokenSource, [tryParseExplicitScope])
+            if path[-5:] == ".minx":
+                logging.debug("running test: {0}".format(path))
+                tokenSource = Tokenizer(FileReader(testPath + path))
+                expression = tryParseOne(tokenSource, [tryParseWholeFileScope])
         print "tests all passed"
  	
     elif len(args) != 1:
@@ -464,7 +506,7 @@ def Main():
     else:
         tokenSource = Tokenizer(FileReader(args[0]))
             
-        expression = tryParseOne(tokenSource, [tryParseExplicitScope])
+        expression = tryParseOne(tokenSource, [tryParseWholeFileScope])
         print repr(expression)
 
 if __name__ == '__main__':

@@ -1,2 +1,4 @@
 
- {   myString =   "my string containing a \" character, and for good measure, a trailing \\"   }
+myString =   "my string containing a \" character, and for good measure, a trailing \\"
+
+

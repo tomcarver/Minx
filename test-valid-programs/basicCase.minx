@@ -1,6 +1,8 @@
-{
+
 freedom = case 2+2
              | 4 : `allGood
-             | i int : `ummmm_close
+             | i int :
+                  onThePlus = "It's a number"
+                  onTheMinus = "Not the right number"
              | else : `uhoh
-}
+

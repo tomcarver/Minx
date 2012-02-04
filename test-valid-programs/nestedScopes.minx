@@ -1,10 +1,15 @@
-{
-firstName = "Tom",
-surname = "Carver",
-age = 27,
-wife = {
-    firstName = "Catherine",
-    surname = "Carver",
-    age = 27},
+# leading comment
+
+firstName = "Tom"
+surname = "Carver"
+age = 27
+
+# comment mid-way through
+
+wife =  # comment mid-line
+    firstName = "Catherine"
+    surname = "Carver"
+    age = 27
+
 profession = `software_developer
-}
+
