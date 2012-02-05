@@ -150,9 +150,9 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
 
     # Operators
     #------------------------------------------
-    # To implement infix operators, we shamelessly rip off the Haskell system:
-    # A function whose name consists solely of special characters is an infix
-    # operator. The operands are supplied as the names "lhs" and "rhs":
+    # To implement infix operators, we start with the Haskell system:
+    # A function whose name consists solely of special characters is an
+    # infix operator. The operands are supplied as the names "lhs" and "rhs":
 
     + = case lhs
         | {hd, tl} : {tl : tl + rhs} as lhs
@@ -163,15 +163,27 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     using_op = [1,2,3] + [4,5,6]
     not_using_op = plus {lhs: [1,2,3], rhs: [4,5,6]}
 
+    # Operator precedence is a messy issue. Can't live with it, can't live 
+    # without it. To keep things simple, all operators in Minx are 
+    # left-associative, and precedence is determined purely on the characters
+    # making up the operator, with shorter operators having greater precedence
+    # over longer ones (+ higher than ++). Function application 
+    # (right-associative) is last. In decreasing precedence: ^*/%+-:><=&| 
+
+    # equals 4:
+    would_equal_10_in_C = 5 + 4 - 2 + 3
+
+    equals_2 = 10 - 2 ^ 5 / 4 * 8 + 7
+
 ## Shelved
 
-- Significant whitespace - becoming a distraction. All scopes are currently explicit
 - Meta
+- A theory of overloading - non-deterministic values?
 
 ## Alphabet:
-    = assignment (mutable or immutable)
-    : control flow (case)
-    | divide case clauses/ union type clauses
+    = assignment (mutable or immutable) (or as part of infix operators)
+    : control flow (case) (or as part of infix operators)
+    | divide case clauses/ union type clauses (or as part of infix operators)
     , list/scope dividers
     {} scope delimiters
     [] list delimiters
@@ -186,7 +198,7 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     $ the current scope
 
     _a-zA-Z0-9?.  valid non-operator name characters
-    *+-></^%&     valid operator characters
+    ^*/%+-:><=&|   valid operator characters
 
     £;\           currently unused
 
@@ -195,13 +207,14 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     comment = "#", read-to-end-of-line
 
     source-file = whole-file-scope
-    expression = group | meta | name | explicit-scope | list-value | "$" | case | union-type | function-application | operator-application | member-access | cast
+    expression = group | meta | name | explicit-scope | list-value | "$" | case | function-application | operator-application | member-access | cast
 
-    group = "(", expression, ")"
+    group = "(", union, ")"
     meta = "'", expression-to-compile, "'"
+    union = expression, { "|", expression }
 
     name = operator-name | non-operator-name  # special cases are atom-value, atom-type, symbol
-    operator-name = block of *+-></^%&
+    operator-name = block of ^*/%+-:><=&|
     non-operator-name = block of _a-zA-Z0-9?.!~
 
     string = """, any-sequence-other-than\", """   # {name} groups turn it into a function
@@ -212,11 +225,11 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
 
     assign-or-declare = single-assign-or-declare | multiple-assign
     multiple-assign = explicit-scope, "=", scope-valued-expression
-    single-assign-or-declare = declaration, ["=", (implict-scope | expression)]
+    single-assign-or-declare = declaration, ["=", (implict-scope | union)]
     declaration = name | typed-declaration
-    typed-declaration = name, expression    # expression must not reduce to an atom-value
+    typed-declaration = name, union    # expression must not reduce to an atom-value
 
-    list-value = "[" [expression , { "," , expression }] "]"    # type is just "list {itemType = __}
+    list-value = "[" [union , { "," , union }] "]"    # type is just "list {itemType = __}
 
     case = "case", non-union-expression, { "|", pattern-match, ":", (implicit-scope | expression) }   # case captures until a parent group is ended - ), }, ], etc
     pattern-match = explicit-scope | typed-declaration | atom-valued-name | "else"

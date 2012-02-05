@@ -1,3 +1,4 @@
 
 3_7 = ([1+2, (3+4)])   # ignore this comment
     
+equals_2 = 10 - 2 ^ 5 / 4 * 8 + 7
