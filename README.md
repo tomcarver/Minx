@@ -1,7 +1,8 @@
 Minx (Programming language)
 ===
 
-NB: Minx is currently under development, i.e. not working. This is all just vapourware at present.
+NB: Minx is currently under development, i.e. not working.
+Currently Minx can be parsed, but not validated or run.
 
 ### Goals:
 
@@ -58,10 +59,10 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     a_to_e = {a = 1, b = 2, f = 4} as {a,b, c = 3, d = 4, e = 5}
     a_and_e = a_to_e hide {b,c,d}
 
-    # Declarations can specify types, but we'd consider it a bug if you had to.
-    # The facility exists purely for readability.
+    # Declarations can specify types, but most of the time it shouldn't be
+    # necessary - the compiler should just work it out.
 
-    myBrother_again person = {firstName string: "Hywel"} as me
+    myBrother_again person = {firstName string= "Hywel"} as me
 
     # Case / Union data types
     #----------------------------------------------
@@ -84,10 +85,10 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     item = case list
            | {hd, tl} : case index
                         | 0: hd 
-                        | else: item {list : tl, index : index - 1}
+                        | else: item ({oldIndex = index} as {list = tl, index = oldIndex - 1})
            | else : `invalid_index
 
-    5thItem = item {list : someList, index : 4}
+    5thItem = item {list = someList, index = 4}
 
     # This example will raise lots of questions to do with the way we just 
     # defined that function that I'll get onto soon.
@@ -119,12 +120,12 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     # In most other languages, these would be hard-coded dependencies. Not in
     # Minx - they are all parameters that need to be bound separately.
 
-    # In practise no-one will lose any sleep over these examples; but 
-    # traditionally OOP has a big problem with this. We are encouraged to start
-    # by grouping functionality into classes first, and so off the bat we decide
-    # what data will be a field, what will be a parameter, what will be static
-    # etc. When these decisions are re-made, a lot of code needs to be 
-    # re-written as a result.
+    # In practise no-one will lose any sleep over the "hard-coding" in these 
+    # examples; but OOP has a big problem with this more generally. We are 
+    # encouraged to start by grouping functionality into classes first, and so
+    # off the bat we decide what data will be a field, what will be a 
+    # parameter, what will be static etc. When these decisions are re-made, a 
+    # lot of code needs to be re-written as a result.
 
     # Here is the much more flexible Minx equivalent:
 
@@ -155,13 +156,13 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     # infix operator. The operands are supplied as the names "lhs" and "rhs":
 
     + = case lhs
-        | {hd, tl} : {tl : tl + rhs} as lhs
+        | {hd, tl} : {old_tl= tl} as {tl = old_tl + rhs} as lhs
         | else : rhs
 
     plus = +
-    
+  
     using_op = [1,2,3] + [4,5,6]
-    not_using_op = plus {lhs: [1,2,3], rhs: [4,5,6]}
+    not_using_op = plus {lhs= [1,2,3], rhs= [4,5,6]}
 
     # Operator precedence is a messy issue. Can't live with it, can't live 
     # without it. To keep things simple, all operators in Minx are 
@@ -207,33 +208,33 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     comment = "#", read-to-end-of-line
 
     source-file = whole-file-scope
-    expression = group | meta | name | explicit-scope | list-value | "$" | case | function-application | operator-application | member-access | cast
+    expression = group | meta | name | explicit-scope | list-value | "$" | case
+           | function-application | operator-application | member-access | cast
 
     group = "(", union, ")"
     meta = "'", expression-to-compile, "'"
     union = expression, { "|", expression }
 
-    name = operator-name | non-operator-name  # special cases are atom-value, atom-type, symbol
+    name = operator-name | non-operator-name
     operator-name = block of ^*/%+-:><=&|
     non-operator-name = block of _a-zA-Z0-9?.!~
 
-    string = """, any-sequence-other-than\", """   # {name} groups turn it into a function
+    string = """, any-sequence-other-than\", """   # {name} groups => function
 
     explicit-scope =   "{", [assign-or-declare, {"," , assign-or-declare}], "}"
-    implicit-scope =   indent, assign-or-declare, {new-line-at-same-initial-indentation assign-or-declare}, unindent
-    whole-file-scope = file-start, assign-or-declare, {new-line-with-no-indentation assign-or-declare}, file-end
+    implicit-scope =   indent, assign-or-declare, {new-line assign-or-declare}, unindent
+    whole-file-scope = file-start, assign-or-declare, {new-line assign-or-declare}, file-end
 
     assign-or-declare = single-assign-or-declare | multiple-assign
     multiple-assign = explicit-scope, "=", scope-valued-expression
     single-assign-or-declare = declaration, ["=", (implict-scope | union)]
     declaration = name | typed-declaration
-    typed-declaration = name, union    # expression must not reduce to an atom-value
+    typed-declaration = name, union
 
-    list-value = "[" [union , { "," , union }] "]"    # type is just "list {itemType = __}
+    list-value = "[" [union , { "," , union }] "]" # sugar for {hd, tl}
 
-    case = "case", non-union-expression, { "|", pattern-match, ":", (implicit-scope | expression) }   # case captures until a parent group is ended - ), }, ], etc
-    pattern-match = explicit-scope | typed-declaration | atom-valued-name | "else"
-    case-type = atom-valued-expression | atom-type-valued-expression | scope-valued-expression
+    case = "case", expression, { "|", pattern, ":", (implicit-scope | expression) }
+    pattern = explicit-scope | typed-declaration | atom-valued-name | "else"
 
     function-application = function-valued-expression, scope-valued-expression
     operator-application = expression, operator-name, expression
@@ -241,7 +242,7 @@ NB: Minx is currently under development, i.e. not working. This is all just vapo
     member-access = scope-valued-expression, "@", name
 
     # either of these acceptable as the last line of an indented scope
-    cast = expression, "as", expression   # scope declarations without values take values from the expression
-         | expression, "hide", scope-valued-expression    # no values for scope declarations
+    cast = expression, "as", expression
+         | expression, "hide", scope-valued-expression
 
 

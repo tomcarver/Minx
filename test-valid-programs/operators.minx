@@ -1,0 +1,9 @@
+
++ = case lhs
+    | {hd, tl} : {old_tl= tl} as {tl = old_tl + rhs} as lhs
+    | else : rhs
+
+plus = +
+  
+using_op = [1,2,3] + [4,5,6]
+not_using_op = plus {lhs= [1,2,3], rhs= [4,5,6]}

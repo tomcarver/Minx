@@ -6,3 +6,10 @@ freedom = case 2+2
                   onTheMinus = "Not the right number"
              | else : `uhoh
 
+item = case list
+       | {hd, tl} : case index
+                    | 0: hd 
+                    | else: item ({oldIndex = index} as {list = tl, index = oldIndex - 1})
+       | else : `invalid_index
+
+5thItem = item {list = someList, index = 4}
