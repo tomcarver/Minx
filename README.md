@@ -11,6 +11,7 @@ Currently Minx can be parsed, but not validated or run.
 - Dependency injection built in
 - Ease/Speed of Learning (i.e. planning for high language turnover)
 - Ease of refactoring
+- No runtime exceptions (bar out of memory etc)
 
 ### Paradigms
 
