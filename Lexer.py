@@ -21,18 +21,17 @@ TOKEN_AT = 12
 TOKEN_CASE = 13
 TOKEN_ELSE = 14
 TOKEN_AS = 15
-TOKEN_HIDE = 16
 
-TOKEN_STRING = 17
-TOKEN_NAME = 18
-TOKEN_INFIX = 19
+TOKEN_STRING = 16
+TOKEN_NAME = 17
+TOKEN_INFIX = 18
 
-TOKEN_INDENT = 20
-TOKEN_UNINDENT = 21
-TOKEN_NEWLINE = 22
+TOKEN_INDENT = 19
+TOKEN_UNINDENT = 20
+TOKEN_NEWLINE = 21
 
-TOKEN_FILESTART = 23
-TOKEN_FILEEND = 24
+TOKEN_FILESTART = 22
+TOKEN_FILEEND = 23
 
 class Lexer():
     def __init__(self, charSource):
@@ -150,8 +149,7 @@ class Lexer():
         namesMap = {
             "case" : TOKEN_CASE,
             "else" : TOKEN_ELSE,
-            "as" : TOKEN_AS,
-            "hide" : TOKEN_HIDE}
+            "as" : TOKEN_AS}
 
         return self.captureChars("_?.`" + string.ascii_letters + string.digits, namesMap, TOKEN_NAME)
 

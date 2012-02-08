@@ -53,12 +53,13 @@ Currently Minx can be parsed, but not validated or run.
 
     # The "type" of a scope is also a scope (person and another_person are valid
     # types for both me_again and me). In fact any scope can be used as a type, 
-    # with any values being used as defaults. The "as" and "hide" keywords 
-    # are used for compile-time casts ("as" hides any names not specified). 
-    # Scopes can be combined.
+    # with any values being used as defaults. The "as" keyword can be used 
+    # for compile-time casts (it hides any names not specified), or for
+    # prototypical inheritance - and it's also just sugar for function 
+    # application. Scopes can be combined.
 
     a_to_e = {a = 1, b = 2, f = 4} as {a,b, c = 3, d = 4, e = 5}
-    a_and_e = a_to_e hide {b,c,d}
+    a_and_e = a_to_e as {a,e}
 
     # Declarations can specify types, but most of the time it shouldn't be
     # necessary - the compiler should just work it out.
@@ -181,6 +182,7 @@ Currently Minx can be parsed, but not validated or run.
 
 - Meta
 - A theory of overloading - non-deterministic values?
+- implement chained scopes in an implicit scope (line1, line2, as, line3...)
 
 ## Alphabet:
     = assignment (mutable or immutable) (or as part of infix operators)
@@ -244,6 +246,5 @@ Currently Minx can be parsed, but not validated or run.
 
     # either of these acceptable as the last line of an indented scope
     cast = expression, "as", expression
-         | expression, "hide", scope-valued-expression
 
 

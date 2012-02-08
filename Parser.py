@@ -15,12 +15,10 @@ PARSED_LIST = 6  # [expression]
 PARSED_SCOPE = 7  # [declaration, declarationType, valueExp]
 
 # precedences:
-PARSED_UNION_TYPE = 9 # [expression]
-PARSED_AS = 10 # expression, filter
-PARSED_HIDE = 11 # expression, filter
-PARSED_APPLICATION = 12 # expression1, expression2
-PARSED_INFIX_OPERATION = 13 # operator, lhs, rhs
-PARSED_MEMBER_ACCESS = 8 # expression, membername
+PARSED_UNION_TYPE = 8 # [expression]
+PARSED_APPLICATION = 9 # expression1, expression2
+PARSED_INFIX_OPERATION = 10 # operator, lhs, rhs
+PARSED_MEMBER_ACCESS = 11 # expression, membername
 
 def tryParseOne(tokenSource, parserList):
     for parser in parserList:
@@ -221,29 +219,17 @@ def tryParseApplication(tokenSource):
 
     return penultimateNode.item
 
-def tryParseHide(tokenSource):
+def tryParseExpression(tokenSource):
     expression = tryParseApplication(tokenSource)
     if expression == None:
         return None
 
-    while tokenSource.isNextToken(TOKEN_HIDE):
-        subexp = tryParseApplication(tokenSource)
-        if subexp == None:
-            tokenSource.error("expected cast after \"hide\"")
-        expression = (PARSED_HIDE, expression, subexp)
-
-    return expression
-
-def tryParseExpression(tokenSource):
-    expression = tryParseHide(tokenSource)
-    if expression == None:
-        return None
-
+    # "as" is an inverted function application, "arguments as function"
     while tokenSource.isNextToken(TOKEN_AS):
-        subexp = tryParseHide(tokenSource)
-        if subexp == None:
+        function = tryParseApplication(tokenSource)
+        if function == None:
             tokenSource.error("expected cast after \"as\"")
-        expression = (PARSED_AS, expression, subexp)
+        expression = (PARSED_APPLICATION, function, expression)
 
     return expression
 
