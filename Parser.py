@@ -11,7 +11,6 @@ PARSED_NAME = 2  # string, hasSideEffects, isMutable
 PARSED_INFIX = 3 # string, hasSideEffects, isMutable
 PARSED_META = 4   # expression
 PARSED_DOLLAR = 5
-PARSED_LIST = 6  # [expression]
 PARSED_SCOPE = 7  # [declaration, declarationType, valueExp]
 
 # precedences:
@@ -281,8 +280,21 @@ def tryParseList(tokenSource):
                 if atEnd == False:
                     tokenSource.error('Expected end bracket (\"]\") for list end or comma for item separation.')
 
-        return (PARSED_LIST, contents)
+        lastTail = (PARSED_NAME, "`empty_list", False, False)
+        if len(contents) == 0:
+            return lastTail
+        else:
+            args = [((PARSED_NAME, "!" + str(i), False, False), None, contents[i]) for i in range(len(contents))]
+            for i in reversed(range(len(contents))):
+                lastTail = (PARSED_SCOPE, [
+                    ((PARSED_NAME, "hd", False, False),None,(PARSED_NAME, "!" + str(i), False, False)),
+                    ((PARSED_NAME, "tl", False, False),None,lastTail)])
+            return (PARSED_APPLICATION, lastTail, args)
 
+#    list = `empty_list
+#         | {hd, tl list}
+# ALIASING, e.g. [hd,hd,tl] must work correctly
+#[3,hd,4,tl] => {hd=!0, tl={hd=!1, tl={hd=!2, tl={hd=!3, tl=`empty_list}}}} {!0=3, !1=hd, !2=4, !3=tl}
 
 tryParseExplicitScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_OPEN_BRACE, TOKEN_COMMA, TOKEN_CLOSE_BRACE)
 tryParseImplicitScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_INDENT, TOKEN_NEWLINE, TOKEN_UNINDENT)
