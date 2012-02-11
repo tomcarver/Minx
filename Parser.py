@@ -9,15 +9,14 @@ PARSED_STRING = 0 # string contains names to match
 PARSED_CASE = 1  # expression, [branchpattern1, branchpattern2, branchexp], elseExp
 PARSED_NAME = 2  # string, hasSideEffects, isMutable
 PARSED_INFIX = 3 # string, hasSideEffects, isMutable
-PARSED_META = 4   # expression
-PARSED_DOLLAR = 5
-PARSED_SCOPE = 7  # [declaration, declarationType, valueExp]
+PARSED_DOLLAR = 4
+PARSED_SCOPE = 5  # [declaration, declarationType, valueExp]
+PARSED_UNION_TYPE = 6 # [expression]
+PARSED_APPLICATION = 7 # expression1, expression2
+PARSED_MEMBER_ACCESS = 8 # expression, membername
 
-# precedences:
-PARSED_UNION_TYPE = 8 # [expression]
-PARSED_APPLICATION = 9 # expression1, expression2
-PARSED_INFIX_OPERATION = 10 # operator, lhs, rhs
-PARSED_MEMBER_ACCESS = 11 # expression, membername
+# TODO
+PARSED_META = 9   # expression
 
 def tryParseOne(tokenSource, parserList):
     for parser in parserList:
@@ -120,10 +119,10 @@ def tryParseMemberAccess(tokenSource):
         return None
 
     while tokenSource.isNextToken(TOKEN_AT):
-        subexp = tryParseOne(tokenSource, [tryParseName, tryParseInfix])
-        if subexp == None:
+        member = tryParseOne(tokenSource, [tryParseName, tryParseInfix])
+        if member == None:
             tokenSource.error("expected member name after member-access character \"@\"")
-        expression = (PARSED_MEMBER_ACCESS, expression, subexp)
+        expression = (PARSED_MEMBER_ACCESS, expression, member)
 
     return expression
 
@@ -202,7 +201,22 @@ def tryParseApplication(tokenSource):
             if highestOpNode.right.isSentinel == False:
                 rightOperand = highestOpNode.right.item
                 highestOpNode.right.remove()
-            highestOpNode.item = (PARSED_INFIX_OPERATION, highestOpNode.item, leftOperand, rightOperand)
+            # 1+lhs => {!lhs = 1, !rhs= lhs, !result = (+) {lhs = !lhs, rhs = !rhs} }@!result
+
+            highestOpNode.item = (PARSED_MEMBER_ACCESS, 
+                (PARSED_SCOPE, [
+                    ((PARSED_NAME, "!lhs", False, False), None, leftOperand),
+                    ((PARSED_NAME, "!rhs", False, False), None, rightOperand),
+                    ((PARSED_NAME, "!result", False, False),None,
+                        (PARSED_APPLICATION, 
+                            highestOpNode.item,
+                            (PARSED_SCOPE, [
+                                ((PARSED_NAME, "lhs", False, False),None,(PARSED_NAME, "!lhs", False, False)),
+                                ((PARSED_NAME, "rhs", False, False),None,(PARSED_NAME, "!rhs", False, False))])
+                        )
+                     )]
+                ), 
+                (PARSED_NAME, "!result", False, False))
         else:
             break
 
@@ -280,21 +294,22 @@ def tryParseList(tokenSource):
                 if atEnd == False:
                     tokenSource.error('Expected end bracket (\"]\") for list end or comma for item separation.')
 
-        lastTail = (PARSED_NAME, "`empty_list", False, False)
+        # list = `empty_list | {hd, tl list}
+        # ALIASING, e.g. [hd,hd,tl] must work correctly
+        # [3,hd,4,tl] => {!0=3, !1=hd, !2=4, !3=tl, !result= {hd=!0, tl={hd=!1, tl={hd=!2, tl={hd=!3, tl=`empty_list}}}}}@!result
+        tail = (PARSED_NAME, "`empty_list", False, False)
         if len(contents) == 0:
-            return lastTail
+            return tail
         else:
             args = [((PARSED_NAME, "!" + str(i), False, False), None, contents[i]) for i in range(len(contents))]
+            resultName = (PARSED_NAME, "!result", False, False)
             for i in reversed(range(len(contents))):
-                lastTail = (PARSED_SCOPE, [
+                tail = (PARSED_SCOPE, [
                     ((PARSED_NAME, "hd", False, False),None,(PARSED_NAME, "!" + str(i), False, False)),
-                    ((PARSED_NAME, "tl", False, False),None,lastTail)])
-            return (PARSED_APPLICATION, lastTail, args)
+                    ((PARSED_NAME, "tl", False, False),None,tail)])
+            args.append((resultName, None, tail))
+            return (PARSED_MEMBER_ACCESS, (PARSED_SCOPE, args), resultName)
 
-#    list = `empty_list
-#         | {hd, tl list}
-# ALIASING, e.g. [hd,hd,tl] must work correctly
-#[3,hd,4,tl] => {hd=!0, tl={hd=!1, tl={hd=!2, tl={hd=!3, tl=`empty_list}}}} {!0=3, !1=hd, !2=4, !3=tl}
 
 tryParseExplicitScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_OPEN_BRACE, TOKEN_COMMA, TOKEN_CLOSE_BRACE)
 tryParseImplicitScope = lambda tokenSource: tryParseScope(tokenSource, TOKEN_INDENT, TOKEN_NEWLINE, TOKEN_UNINDENT)

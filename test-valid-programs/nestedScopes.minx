@@ -13,3 +13,7 @@ wife =  # comment mid-line
 
 profession = `software_developer
 
+
+fileReader =
+	openFile~ = open~ fileDetails
+	closeFile~ = close~ fileDetails
