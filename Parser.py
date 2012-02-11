@@ -7,13 +7,12 @@ from Lexer import *
 
 PARSED_STRING = 0 # string contains names to match
 PARSED_CASE = 1  # expression, [branchpattern1, branchpattern2, branchexp], elseExp
-PARSED_NAME = 2  # string, hasSideEffects, isMutable
-PARSED_INFIX = 3 # string, hasSideEffects, isMutable
-PARSED_DOLLAR = 4
-PARSED_SCOPE = 5  # [declaration, declarationType, valueExp]
-PARSED_UNION_TYPE = 6 # [expression]
-PARSED_APPLICATION = 7 # expression1, expression2
-PARSED_MEMBER_ACCESS = 8 # expression, membername
+PARSED_NAME = 2  # string, hasSideEffects, isMutable, isInfix
+PARSED_DOLLAR = 3
+PARSED_SCOPE = 4  # [name or scope, declarationType, expression]
+PARSED_UNION_TYPE = 5 # [expression]
+PARSED_APPLICATION = 6 # expression1, expression2
+PARSED_MEMBER_ACCESS = 7 # expression, Name
 
 # TODO
 PARSED_META = 9   # expression
@@ -61,14 +60,14 @@ def tryParseCase(tokenSource):
             if elseBranch != None:
                 tokenSource.error("An else branch must be the last branch of a case statement.")
             isElse = False
-            branchPattern = tryParseOne(tokenSource, [tryParseExplicitScope, tryParseName, tryParseInfix])
+            branchPattern = tryParseOne(tokenSource, [tryParseExplicitScope, tryParseName])
             branchPattern_type = None
             if branchPattern == None:
                 isElse = tokenSource.isNextToken(TOKEN_ELSE)
                 if isElse == False:
                     tokenSource.error("expected pattern for this branch of the case statement")
 
-            elif branchPattern[0] in [PARSED_NAME, PARSED_INFIX]:
+            elif branchPattern[0] == PARSED_NAME:
                 branchPattern_type = tryParseName(tokenSource)
 
             logging.debug("parsed case branch pattern: {0}, type {1}".format(repr(branchPattern), repr(branchPattern_type)))
@@ -108,7 +107,6 @@ def tryParseBaseExpression(tokenSource):
       tryParseList, 
       tryParseCase,
       tryParseName,
-      tryParseInfix,
       tryParseString]
 
     return tryParseOne(tokenSource, mainParsers)
@@ -119,7 +117,7 @@ def tryParseMemberAccess(tokenSource):
         return None
 
     while tokenSource.isNextToken(TOKEN_AT):
-        member = tryParseOne(tokenSource, [tryParseName, tryParseInfix])
+        member = tryParseOne(tokenSource, [tryParseName])
         if member == None:
             tokenSource.error("expected member name after member-access character \"@\"")
         expression = (PARSED_MEMBER_ACCESS, expression, member)
@@ -188,7 +186,7 @@ def tryParseApplication(tokenSource):
         nextNode = leftSentinel.right
         highestOpNode = None
         while nextNode.isSentinel == False:
-            if nextNode.item[0] == PARSED_INFIX:
+            if nextNode.item[0] == PARSED_NAME and nextNode.item[4]:
                 highestOpNode = greatestPrecedence(highestOpNode, nextNode)
             nextNode = nextNode.right
 
@@ -205,18 +203,18 @@ def tryParseApplication(tokenSource):
 
             highestOpNode.item = (PARSED_MEMBER_ACCESS, 
                 (PARSED_SCOPE, [
-                    ((PARSED_NAME, "!lhs", False, False), None, leftOperand),
-                    ((PARSED_NAME, "!rhs", False, False), None, rightOperand),
-                    ((PARSED_NAME, "!result", False, False),None,
+                    ((PARSED_NAME, "!lhs", False, False, False), None, leftOperand),
+                    ((PARSED_NAME, "!rhs", False, False, False), None, rightOperand),
+                    ((PARSED_NAME, "!result", False, False, False),None,
                         (PARSED_APPLICATION, 
                             highestOpNode.item,
                             (PARSED_SCOPE, [
-                                ((PARSED_NAME, "lhs", False, False),None,(PARSED_NAME, "!lhs", False, False)),
-                                ((PARSED_NAME, "rhs", False, False),None,(PARSED_NAME, "!rhs", False, False))])
+                                ((PARSED_NAME, "lhs", False, False, False),None,(PARSED_NAME, "!lhs", False, False, False)),
+                                ((PARSED_NAME, "rhs", False, False, False),None,(PARSED_NAME, "!rhs", False, False, False))])
                         )
                      )]
                 ), 
-                (PARSED_NAME, "!result", False, False))
+                (PARSED_NAME, "!result", False, False, False))
         else:
             break
 
@@ -270,12 +268,14 @@ def tryParseString(tokenSource):
 def tryParseDollar(tokenSource):
     return (PARSED_DOLLAR, ) if tokenSource.isNextToken(TOKEN_DOLLAR) else None
 
-def tryParseTokenQuad(tokenSource, tokenType, parsedType):
-    token = tokenSource.getIfOfType(tokenType)
-    return (parsedType, token[1], token[2], token[3]) if token != None else None
+def tryParseName(tokenSource):
+    token = tokenSource.getIfOfType(TOKEN_NAME)
+    isInfix = False
+    if token == None:
+        token = tokenSource.getIfOfType(TOKEN_INFIX)
+        isInfix = True
 
-tryParseName = lambda tokenSource: tryParseTokenQuad(tokenSource, TOKEN_NAME, PARSED_NAME)
-tryParseInfix = lambda tokenSource: tryParseTokenQuad(tokenSource, TOKEN_INFIX, PARSED_INFIX)
+    return (PARSED_NAME, token[1], token[2], token[3], isInfix) if token != None else None
 
 def tryParseList(tokenSource):
     if tokenSource.isNextToken(TOKEN_OPEN_BRACKET):
@@ -297,16 +297,16 @@ def tryParseList(tokenSource):
         # list = `empty_list | {hd, tl list}
         # ALIASING, e.g. [hd,hd,tl] must work correctly
         # [3,hd,4,tl] => {!0=3, !1=hd, !2=4, !3=tl, !result= {hd=!0, tl={hd=!1, tl={hd=!2, tl={hd=!3, tl=`empty_list}}}}}@!result
-        tail = (PARSED_NAME, "`empty_list", False, False)
+        tail = (PARSED_NAME, "`empty_list", False, False, False)
         if len(contents) == 0:
             return tail
         else:
-            args = [((PARSED_NAME, "!" + str(i), False, False), None, contents[i]) for i in range(len(contents))]
-            resultName = (PARSED_NAME, "!result", False, False)
+            args = [((PARSED_NAME, "!" + str(i), False, False, False), None, contents[i]) for i in range(len(contents))]
+            resultName = (PARSED_NAME, "!result", False, False, False)
             for i in reversed(range(len(contents))):
                 tail = (PARSED_SCOPE, [
-                    ((PARSED_NAME, "hd", False, False),None,(PARSED_NAME, "!" + str(i), False, False)),
-                    ((PARSED_NAME, "tl", False, False),None,tail)])
+                    ((PARSED_NAME, "hd", False, False, False),None,(PARSED_NAME, "!" + str(i), False, False, False)),
+                    ((PARSED_NAME, "tl", False, False, False),None,tail)])
             args.append((resultName, None, tail))
             return (PARSED_MEMBER_ACCESS, (PARSED_SCOPE, args), resultName)
 
@@ -320,7 +320,7 @@ def tryParseScope(tokenSource, startToken, separatorToken, endToken):
         logging.debug("found scope start token: {0}".format(startToken))
         scopeDeclarations = []
 
-        nameParsers = [tryParseExplicitScope, tryParseName, tryParseInfix]
+        nameParsers = [tryParseExplicitScope, tryParseName]
 
         atEnd = tokenSource.isNextToken(endToken)
         while atEnd == False:
@@ -330,7 +330,7 @@ def tryParseScope(tokenSource, startToken, separatorToken, endToken):
                 
             logging.debug("parsed declaration: {0}".format(repr(declaration)))
             declaration_type = None
-            if declaration[0] in [PARSED_NAME, PARSED_INFIX]:
+            if declaration[0] == PARSED_NAME:
                 declaration_type = tryParseUnion(tokenSource)
                 logging.debug("parsed declaration type: {0}".format(repr(declaration_type)))
 
