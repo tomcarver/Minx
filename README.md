@@ -41,34 +41,50 @@ Currently Minx can be parsed, but not validated or run.
     # 2) an indented block after "=" or ":"
 
     another_person = 
-      firstName
-      surname
+        firstName
+        surname
 
     me_again =
-      firstName = "Tom"
-      surname = "Carver"
+        firstName = "Tom"
+        surname = "Carver"
 
     # 3) or a source-file like this one! To this point, a scope of type
     # {me, person, me_again, another_person} has been declared.
 
     # The "type" of a scope is also a scope (person and another_person are valid
     # types for both me_again and me). In fact any scope can be used as a type, 
-    # with any values being used as defaults. The "as" keyword can be used 
-    # for compile-time casts (it hides any names not specified), or for
-    # prototypical inheritance - and it's also just sugar for function 
-    # application. Scopes can be combined.
+    # with any values being used as defaults. The "as" keyword allows you to 
+    # define a new expression chained to the preceding scope (hiding any names 
+    # not specified), which can be used for prototypical inheritance - and it's 
+    # also just sugar for function application.
 
     a_to_e = {a = 1, b = 2, f = 4} as {a,b, c = 3, d = 4, e = 5}
     a_and_e = a_to_e as {a,e}
 
+    # note the first value for b is "hidden":
+    a_b_c = {a = 1, b = 4} as {a, b =2, c = 3}
+
     # Declarations can specify types, but most of the time it shouldn't be
     # necessary - the compiler should just work it out.
 
-    myBrother_again person = {firstName string= "Hywel"} as me
+    me_once_more person =
+        firstName String = "Tom"
+        surname String = "Carver"
+
+    # Names bind "greedily" - as early as possible according to their context.
+    # The easiest way to demonstrate this is with code: in the following 
+    # snippet, "bound_value" takes the value 1; the other values for the name "order" would normally bind in the order they are numbered.
+
+    order = 5
+    scope = 
+        order = 4
+        scope = ({order = 2} as {order = 1, bound_value = order}) {order=3}
+        
 
     # Case / Union data types
     #----------------------------------------------
     # All other values are "atoms" - e.g. the strings we saw above.
+    # The names of these types (e.g. "Int", "Symbol", "String") are also atoms.
     # "Symbols" are used to specify semantic data:
 
     reasonForFailure = `file_not_found
@@ -87,7 +103,7 @@ Currently Minx can be parsed, but not validated or run.
     item = case list
            | {hd, tl} : case index
                         | 0: hd 
-                        | else: item ({oldIndex = index} as {list = tl, index = oldIndex - 1})
+                        | else: item ({old_idx = index} as {list = tl, index = old_idx - 1})
            | else : `invalid_index
 
     5thItem = item {list = someList, index = 4}
@@ -114,11 +130,33 @@ Currently Minx can be parsed, but not validated or run.
 
     # Functions
     #----------------------------------------------
-    # Functions are just data structures with un-met dependencies. It is not
-    # necessary to specify the parameters a function takes because these vary
-    # depending on the way a function is being used. For example in the previous
-    # examples, we have used the following symbols:
-    #   0,1,2,3,4, string, -
+    # Functions are just data structures with un-met dependencies. By default 
+    # functions cannot interact with the outside world and values cannot be 
+    # modified once set. Consequently functions have no "side effects" - a 
+    # function called with the same arguments will always produce the same 
+    # result, and the result is the only consequence of running the function. 
+    # This makes these functions predictable and less error-prone in general.
+
+    # However, in the real world there are many situations where the ability to
+    # change values ("mutation") and interact with the outside world are pretty
+    # damn handy; for these Minx provides opt-in mutability and side-effects in
+    # functions with the "!" and "~" modifers, respectively
+
+    readFileLines~ =
+        contents = readFile~ fileDetails
+        lines = splitToLines contents
+
+    [ insert good example with mutability here ]
+
+    # In functions without side effects, the order that statements are executed 
+    # in does not affect the result; however as soon as mutability and IO are
+    # introduced, order becomes very significant. Functions with side effects 
+    # are therefore fundamentally different from those without.
+
+    # Note it has not been necessary to specify the parameters a function takes
+    # because these vary depending on the way a function is being used. For 
+    # example we have so far used the following symbols:
+    #   0,1,2,3,4, String, -
     # In most other languages, these would be hard-coded dependencies. Not in
     # Minx - they are all parameters that need to be bound separately.
 
@@ -212,7 +250,7 @@ Currently Minx can be parsed, but not validated or run.
 
     source-file = whole-file-scope
     expression = group | meta | name | explicit-scope | list-value | "$" | case
-           | function-application | operator-application | member-access | cast
+           | function-application | operator-application | member-access | chain
 
     group = "(", union, ")"
     meta = "'", expression-to-compile, "'"
@@ -245,6 +283,6 @@ Currently Minx can be parsed, but not validated or run.
     member-access = scope-valued-expression, "@", name
 
     # either of these acceptable as the last line of an indented scope
-    cast = expression, "as", expression
+    chain = expression, "as", expression
 
 
