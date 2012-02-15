@@ -6,8 +6,8 @@ view = "<html>
 <body>{bodyHtml}</body>
 </html>"
 
-bodyHtml = "<h1>{title}</h1>
-<p>{content}</p>"
+bodyHtml = "{leading}<h1>{title}</h1>
+<p>{content}</p>{trailing}"
 
 headHtml = "<head>{title}</head>"
 

@@ -263,7 +263,9 @@ def tryParseUnion(tokenSource):
 
 def tryParseString(tokenSource):
     token = tokenSource.getIfOfType(TOKEN_STRING)
-    return (PARSED_STRING, token[1]) if token != None else None
+    if token != None:
+        mappedNames = [(PARSED_NAME, name[1], name[2], name[3], name[0] == TOKEN_INFIX) for name in token[2]]
+        return (PARSED_STRING, token[1], mappedNames)
 
 def tryParseDollar(tokenSource):
     return (PARSED_DOLLAR, ) if tokenSource.isNextToken(TOKEN_DOLLAR) else None

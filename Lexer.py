@@ -174,14 +174,30 @@ class Lexer():
 
     def captureString(self):
         if self.charSource.isNextChar("\""):
-            strContents = []
+            currentChunk = []
+            chunks = []
+            names = []
             lastCharWasBackslash = False
             char = self.charSource.get()
             while lastCharWasBackslash or char != "\"":
-                strContents.append(char)
+                if lastCharWasBackslash or char != "{":
+                    currentChunk.append(char)
+                else:
+                    chunks.append(''.join(currentChunk))
+                    currentChunk = []
+                    name = self.captureName()
+                    if name == None:
+                        name = self.captureInfix()
+
+                    if name == None or (name[0] != TOKEN_NAME and name[0] != TOKEN_INFIX):
+                        self.error("expected name in braces within string. If you just wanted a brace, escape it like this: \"\\{\"")
+                    names.append(name)
+                    if self.charSource.isNextChar("}") == False:
+                        self.error("expected end brace after name in braces within string. If you just wanted a brace, escape it like this: \"\\{\"")
                 lastCharWasBackslash = (lastCharWasBackslash == False) and char == "\\"
                 char = self.charSource.get()
-            return (TOKEN_STRING, ''.join(strContents))
+            chunks.append(''.join(currentChunk))
+            return (TOKEN_STRING, chunks, names)
 
     def error(self, msg):
         lineAndColNo = self.charSource.lineAndColNo()
